@@ -18,10 +18,17 @@ public:
 
     std::vector<std::string> pokemonModels() const;
 
-    // Enumerates BCH model candidates from any readable CIA RomFS. Both raw
-    // .bch and LZH8-compressed .bch.cx resources are accepted. Animation-only
-    // resources are excluded from the model picker and can still be loaded by
-    // a model provider as companions.
+    std::vector<std::string> resources() const {
+        std::vector<std::string> result;
+        result.reserve(files_.size());
+        for (const auto& [path, record] : files_) {
+            (void)record;
+            result.push_back(path);
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    }
+
     std::vector<std::string> modelResources() const {
         std::vector<std::string> result;
         result.reserve(files_.size());
