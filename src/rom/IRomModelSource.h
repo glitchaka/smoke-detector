@@ -20,6 +20,20 @@ struct ModelPayload {
     std::vector<std::uint8_t> animationBch;
 };
 
+struct ExportResource {
+    std::string romfsPath;
+    std::vector<std::uint8_t> bytes;
+};
+
+struct ModelExportPayload {
+    RomInfo rom;
+    std::string provider;
+    std::string resourceId;
+    std::vector<std::uint8_t> modelBch;
+    std::vector<ExportResource> animations;
+    std::vector<ExportResource> audio;
+};
+
 class IRomModelSource {
 public:
     virtual ~IRomModelSource() = default;
@@ -30,6 +44,7 @@ public:
     virtual bool hasBch(const std::string& resourceId) const = 0;
     virtual std::vector<std::uint8_t> extractBch(const std::string& resourceId) const = 0;
     virtual ModelPayload load(const std::string& resourceId) const = 0;
+    virtual ModelExportPayload exportModel(const std::string& resourceId) const = 0;
 };
 
 std::unique_ptr<IRomModelSource> openModelSource(const RomInfo& rom);
