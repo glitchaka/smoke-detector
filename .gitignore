@@ -1,0 +1,12 @@
+build/
+exports/
+roms/*
+!roms/README.md
+*.cia
+*.3ds
+*.cci
+*.cxi
+*.nds
+*.gba
+*.gbc
+*.gb
