@@ -22,6 +22,8 @@ public:
 
     bool has(const std::string& virtualPath) const;
     std::vector<std::uint8_t> extractBch(const std::string& virtualPath) const;
+    ModelPayload load(const std::string& virtualPath) const;
+    ModelExportPayload exportModel(const std::string& virtualPath) const;
 
 private:
     struct SourceSlot {
@@ -32,6 +34,7 @@ private:
     struct DecodedPath {
         const IRomModelSource* source = nullptr;
         std::string resource;
+        std::string label;
     };
 
     RomLibrary library_;
