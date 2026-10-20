@@ -19,8 +19,6 @@ bool RomModelArchive::open(const std::filesystem::path& romDirectory) {
             slot.source = std::move(source);
             sources_.push_back(std::move(slot));
         } catch (...) {
-            // The library keeps the ROM visible even if a model provider cannot
-            // be opened. One bad ROM must not prevent the other ROMs from loading.
         }
     }
     return !library_.empty();
@@ -48,7 +46,7 @@ RomModelArchive::DecodedPath RomModelArchive::decode(const std::string& virtualP
     const std::string label = virtualPath.substr(0, split);
     const std::string resource = virtualPath.substr(split + separator.size());
     for (const auto& slot : sources_) {
-        if (slot.label == label) return {slot.source.get(), resource};
+        if (slot.label == label) return {slot.source.get(), resource, label};
     }
     return {};
 }
@@ -62,6 +60,20 @@ std::vector<std::uint8_t> RomModelArchive::extractBch(const std::string& virtual
     const auto decoded = decode(virtualPath);
     if (!decoded.source) throw std::runtime_error("Unknown ROM model resource: " + virtualPath);
     return decoded.source->extractBch(decoded.resource);
+}
+
+ModelPayload RomModelArchive::load(const std::string& virtualPath) const {
+    const auto decoded = decode(virtualPath);
+    if (!decoded.source) throw std::runtime_error("Unknown ROM model resource: " + virtualPath);
+    return decoded.source->load(decoded.resource);
+}
+
+ModelExportPayload RomModelArchive::exportModel(const std::string& virtualPath) const {
+    const auto decoded = decode(virtualPath);
+    if (!decoded.source) throw std::runtime_error("Unknown ROM model resource: " + virtualPath);
+    auto payload = decoded.source->exportModel(decoded.resource);
+    payload.provider = decoded.label + " | " + payload.provider;
+    return payload;
 }
 
 } // namespace promptemon::rom
