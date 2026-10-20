@@ -3,6 +3,7 @@
 #include "bch/BchScene.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -98,7 +99,7 @@ void writeTga(const std::filesystem::path& path, const promptemon::bch::Texture&
     header[14] = static_cast<std::uint8_t>(texture.height & 0xff);
     header[15] = static_cast<std::uint8_t>((texture.height >> 8) & 0xff);
     header[16] = 32;
-    header[17] = 0x28; // top-left origin + 8 alpha bits
+    header[17] = 0x28;
     out.write(reinterpret_cast<const char*>(header), sizeof(header));
 
     for (std::size_t i = 0; i + 3 < texture.rgba.size(); i += 4) {
