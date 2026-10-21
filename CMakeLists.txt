@@ -66,9 +66,12 @@ target_compile_definitions(smoke_sfx_stub PRIVATE SMOKE_SFX_STUB=1)
 
 if(WIN32)
     add_executable(smoke_detector WIN32
-        src/demo/SmokeDetectorWin32.cpp
+        src/demo/SmokeDetectorWin32Modern.cpp
     )
     target_compile_definitions(smoke_detector PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    if(MSVC)
+        target_compile_options(smoke_detector PRIVATE /utf-8)
+    endif()
     target_link_libraries(smoke_detector PRIVATE
         smoke_rom
         smoke_resource
