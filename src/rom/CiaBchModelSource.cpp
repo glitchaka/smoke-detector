@@ -2,6 +2,7 @@
 
 #include "rom/Lzh8.h"
 #include "rom/RumbleWorldArchive.h"
+#include "rom/ThreeDsCrypto.h"
 
 #include <algorithm>
 #include <cctype>
@@ -89,8 +90,11 @@ class CiaBchModelSource final : public IRomModelSource {
 public:
     explicit CiaBchModelSource(RomInfo info) : info_(std::move(info)) {
         archive_ = std::make_unique<RumbleWorldArchive>();
-        if (!archive_->open(info_.path)) {
-            throw std::runtime_error("Could not open 3DS RomFS: " + info_.path.string());
+        const auto readable = prepareReadableThreeDsImage(info_);
+        if (!archive_->open(readable.path)) {
+            std::string message = "Could not open 3DS RomFS: " + info_.path.string();
+            if (!readable.diagnostic.empty()) message += " (" + readable.diagnostic + ")";
+            throw std::runtime_error(message);
         }
 
         // The model browser is game-agnostic. Expose every BCH candidate in the
