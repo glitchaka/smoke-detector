@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -36,6 +37,7 @@ constexpr int ID_EXPORT = 1003;
 constexpr int ID_IDLE = 1004;
 constexpr int ID_ACTION1 = 1005;
 constexpr int ID_ACTION2 = 1006;
+constexpr int ID_EXPORT_ALL = 1007;
 constexpr int ID_PICKER_SEARCH = 2001;
 constexpr int ID_PICKER_LIST = 2002;
 constexpr int ID_PICKER_LOAD = 2003;
@@ -400,12 +402,44 @@ void showRoms() {
 void exportSelected() {
     if (!gArchive || gSelectedModel.empty()) return;
     const auto result = AssetExporter::exportModel(*gArchive, gSelectedModel, gExportRoot);
-    std::string message = "Exportado en:\r\n" + result.directory.string() +
+    std::string message = "Archivo 3D:\r\n" + result.interchangeModel.string() +
         "\r\n\r\nAnimaciones: " + std::to_string(result.animationClips) +
         "\r\nTexturas: " + std::to_string(result.textures) +
-        "\r\nAudio: " + std::to_string(result.audioResources);
+        "\r\nAudio: " + std::to_string(result.audioResources) +
+        "\r\n\r\nEl BCH original queda como source.bch.";
     MessageBoxA(gWindow, message.c_str(), "Exportacion completa", MB_OK | MB_ICONINFORMATION);
-    ShellExecuteA(gWindow, "open", result.directory.string().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    const auto modelDirectory = result.interchangeModel.parent_path();
+    ShellExecuteA(gWindow, "open", modelDirectory.string().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void exportAllModels() {
+    if (!gArchive || gModels.empty()) return;
+
+    std::size_t exported = 0;
+    std::size_t failed = 0;
+    std::string firstFailure;
+
+    setStatus("Exportando todos los modelos...");
+    for (std::size_t i = 0; i < gModels.size(); ++i) {
+        setStatus("Exportando " + std::to_string(i + 1) + "/" + std::to_string(gModels.size()));
+        try {
+            AssetExporter::exportModel(*gArchive, gModels[i], gExportRoot);
+            ++exported;
+        } catch (const std::exception& e) {
+            ++failed;
+            if (firstFailure.empty()) firstFailure = gModels[i] + "\r\n" + e.what();
+        }
+    }
+
+    std::ostringstream message;
+    message << "Modelos exportados: " << exported
+            << "\r\nFallidos: " << failed
+            << "\r\n\r\nDestino:\r\n" << gExportRoot.string();
+    if (!firstFailure.empty()) message << "\r\n\r\nPrimer error:\r\n" << firstFailure;
+
+    MessageBoxA(gWindow, message.str().c_str(), "Exportar todo", failed ? MB_OK | MB_ICONWARNING : MB_OK | MB_ICONINFORMATION);
+    ShellExecuteA(gWindow, "open", gExportRoot.string().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    setStatus(gSelectedModel);
 }
 
 void layoutMain(HWND hwnd) {
@@ -439,9 +473,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             CreateWindowA("BUTTON", "Modelos...", WS_CHILD | WS_VISIBLE, 10, 10, 100, 30, hwnd, reinterpret_cast<HMENU>(ID_MODELS), nullptr, nullptr);
             CreateWindowA("BUTTON", "ROMs...", WS_CHILD | WS_VISIBLE, 116, 10, 82, 30, hwnd, reinterpret_cast<HMENU>(ID_ROMS), nullptr, nullptr);
             CreateWindowA("BUTTON", "Exportar", WS_CHILD | WS_VISIBLE, 204, 10, 92, 30, hwnd, reinterpret_cast<HMENU>(ID_EXPORT), nullptr, nullptr);
-            CreateWindowA("BUTTON", "Idle", WS_CHILD | WS_VISIBLE, 310, 10, 70, 30, hwnd, reinterpret_cast<HMENU>(ID_IDLE), nullptr, nullptr);
-            CreateWindowA("BUTTON", "Accion 1", WS_CHILD | WS_VISIBLE, 386, 10, 82, 30, hwnd, reinterpret_cast<HMENU>(ID_ACTION1), nullptr, nullptr);
-            CreateWindowA("BUTTON", "Accion 2", WS_CHILD | WS_VISIBLE, 474, 10, 82, 30, hwnd, reinterpret_cast<HMENU>(ID_ACTION2), nullptr, nullptr);
+            CreateWindowA("BUTTON", "Exportar todo", WS_CHILD | WS_VISIBLE, 302, 10, 110, 30, hwnd, reinterpret_cast<HMENU>(ID_EXPORT_ALL), nullptr, nullptr);
+            CreateWindowA("BUTTON", "Idle", WS_CHILD | WS_VISIBLE, 418, 10, 70, 30, hwnd, reinterpret_cast<HMENU>(ID_IDLE), nullptr, nullptr);
+            CreateWindowA("BUTTON", "Accion 1", WS_CHILD | WS_VISIBLE, 494, 10, 82, 30, hwnd, reinterpret_cast<HMENU>(ID_ACTION1), nullptr, nullptr);
+            CreateWindowA("BUTTON", "Accion 2", WS_CHILD | WS_VISIBLE, 582, 10, 82, 30, hwnd, reinterpret_cast<HMENU>(ID_ACTION2), nullptr, nullptr);
             gRenderWindow = CreateWindowExA(0, "SmokeDetectorRender", "", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
                                             0, TOOLBAR_HEIGHT, 1, 1, hwnd, nullptr, GetModuleHandleA(nullptr), nullptr);
             if (!gRenderWindow) return -1;
@@ -449,7 +484,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_SIZE: layoutMain(hwnd); return 0;
         case WM_GETMINMAXINFO: {
             auto* info = reinterpret_cast<MINMAXINFO*>(lp);
-            info->ptMinTrackSize = {640, 480};
+            info->ptMinTrackSize = {700, 480};
             MONITORINFO mi{sizeof(mi)};
             if (GetMonitorInfoA(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi)) {
                 info->ptMaxTrackSize.x = mi.rcWork.right - mi.rcWork.left;
@@ -464,6 +499,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     case ID_MODELS: showModelPicker(); break;
                     case ID_ROMS: showRoms(); break;
                     case ID_EXPORT: exportSelected(); break;
+                    case ID_EXPORT_ALL: exportAllModels(); break;
                     case ID_IDLE: play(gIdle); break;
                     case ID_ACTION1: play(actionAt(0)); break;
                     case ID_ACTION2: play(actionAt(1)); break;
