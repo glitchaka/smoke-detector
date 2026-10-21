@@ -58,6 +58,8 @@ std::string identifyPokemonGame(const std::string& code, const std::string& titl
     static const std::unordered_map<std::string, std::string> knownPrefixes = {
         {"BPR", "Pokemon FireRed"}, {"BPG", "Pokemon LeafGreen"},
         {"BPE", "Pokemon Emerald"}, {"AXV", "Pokemon Ruby"}, {"AXP", "Pokemon Sapphire"},
+        {"B24", "Pokemon Mystery Dungeon: Red Rescue Team"},
+        {"BPP", "Pokemon Pinball: Ruby & Sapphire"},
         {"APA", "Pokemon Pearl"}, {"ADA", "Pokemon Diamond"}, {"CPU", "Pokemon Platinum"},
         {"IPK", "Pokemon HeartGold"}, {"IPG", "Pokemon SoulSilver"},
         {"IRB", "Pokemon Black"}, {"IRA", "Pokemon White"},
