@@ -1,4 +1,5 @@
 #include "rom/RomResourceArchive.h"
+#include "rom/CartridgeResourceSource.h"
 
 #include <stdexcept>
 
@@ -11,7 +12,8 @@ bool RomResourceArchive::open(const std::filesystem::path& romDirectory) {
     std::size_t sourceIndex = 0;
     for (const auto& entry : library_.entries()) {
         try {
-            auto source = openResourceSource(entry.info);
+            auto source = openCartridgeResourceSource(entry.info);
+            if (!source) source = openResourceSource(entry.info);
             if (!source) continue;
             SourceSlot slot;
             slot.label = "[" + std::to_string(sourceIndex++) + "] " + entry.info.path.filename().string();
