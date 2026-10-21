@@ -32,7 +32,7 @@ public:
         const std::filesystem::path& exportRoot,
         const std::filesystem::path& selfExtractorStub = {},
         ProgressCallback progress = {},
-        bool buildPackages = true);
+        bool buildPackages = false);
 };
 
 } // namespace smoke_detector::exporter
