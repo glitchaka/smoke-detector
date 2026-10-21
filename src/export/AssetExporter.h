@@ -10,6 +10,7 @@ namespace smoke_detector::exporter {
 
 struct ExportResult {
     std::filesystem::path directory;
+    std::filesystem::path interchangeModel;
     std::size_t animationContainers = 0;
     std::size_t animationClips = 0;
     std::size_t textures = 0;
