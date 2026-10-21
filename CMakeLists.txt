@@ -69,9 +69,8 @@ add_executable(smoke_sfx_stub tools/resource_unpack.cpp)
 target_compile_definitions(smoke_sfx_stub PRIVATE SMOKE_SFX_STUB=1)
 
 if(WIN32)
-    # The editor reuses the proven ROM/model/rendering plumbing from Studio3,
-    # but owns its entire UI. Build a private include from Studio3 so we can
-    # keep that backend without also instantiating its old main window.
+    # Build a private Studio3 backend include. The new editor owns the window
+    # and only reuses the proven ROM/model/OpenGL plumbing.
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/demo/SmokeDetectorWin32Studio3.cpp" SMOKE_STUDIO_SOURCE)
     string(REPLACE
         "#include <vector>"
@@ -121,8 +120,22 @@ if(WIN32)
     set(SMOKE_STUDIO_BASE "${CMAKE_CURRENT_BINARY_DIR}/SmokeDetectorStudioBase.generated.inc")
     file(WRITE "${SMOKE_STUDIO_BASE}" "${SMOKE_STUDIO_SOURCE}")
 
+    # Inject the edited-asset exporter inside the editor's anonymous namespace
+    # so it can bake mesh, rig, UV and image-layer changes into the OBJ package.
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/demo/SmokeDetectorWin32Editor.cpp" SMOKE_EDITOR_SOURCE)
+    string(REPLACE
+        "void editorClick(HWND hwnd,int x,int y){"
+        "#include \"SmokeDetectorWin32EditorExport.inc\"\n\nvoid editorClick(HWND hwnd,int x,int y){"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+    string(REPLACE
+        "exportStudioSelected();return;"
+        "exportEditorSelected();return;"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+    set(SMOKE_EDITOR_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/SmokeDetectorWin32Editor.generated.cpp")
+    file(WRITE "${SMOKE_EDITOR_GENERATED}" "${SMOKE_EDITOR_SOURCE}")
+
     add_executable(smoke_detector WIN32
-        src/demo/SmokeDetectorWin32Editor.cpp
+        "${SMOKE_EDITOR_GENERATED}"
     )
     target_compile_definitions(smoke_detector PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_include_directories(smoke_detector PRIVATE
