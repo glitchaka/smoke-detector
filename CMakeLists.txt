@@ -19,6 +19,7 @@ target_include_directories(smoke_rom PUBLIC
 )
 
 add_library(smoke_resource
+    src/rom/CartridgeResourceSource.cpp
     src/rom/GenericRomResourceSource.cpp
     src/rom/RomResourceArchive.cpp
 )
