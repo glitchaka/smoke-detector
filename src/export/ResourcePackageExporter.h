@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -21,10 +22,16 @@ struct ResourcePackageResult {
 
 class ResourcePackageExporter {
 public:
+    using ProgressCallback = std::function<void(std::size_t current,
+                                                std::size_t total,
+                                                const std::string& sourceLabel,
+                                                const std::string& resourceId)>;
+
     static std::vector<ResourcePackageResult> exportAll(
         const promptemon::rom::RomResourceArchive& archive,
         const std::filesystem::path& exportRoot,
-        const std::filesystem::path& selfExtractorStub = {});
+        const std::filesystem::path& selfExtractorStub = {},
+        ProgressCallback progress = {});
 };
 
 } // namespace smoke_detector::exporter
