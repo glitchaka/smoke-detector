@@ -124,6 +124,10 @@ if(WIN32)
     # so it can bake mesh, rig, UV and image-layer changes into the OBJ package.
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/demo/SmokeDetectorWin32Editor.cpp" SMOKE_EDITOR_SOURCE)
     string(REPLACE
+        "using Gdiplus::PixelFormat32bppARGB;\n"
+        ""
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+    string(REPLACE
         "void editorClick(HWND hwnd,int x,int y){"
         "#include \"SmokeDetectorWin32EditorExport.inc\"\n\nvoid editorClick(HWND hwnd,int x,int y){"
         SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
@@ -131,6 +135,15 @@ if(WIN32)
         "exportStudioSelected();return;"
         "exportEditorSelected();return;"
         SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+    string(REPLACE
+        "ShowWindow(gRenderWindow,gScene?SW_SHOW:SW_HIDE);"
+        "ShowWindow(gRenderWindow,(gScene&&gPreview3D)?SW_SHOW:SW_HIDE);"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+    string(REPLACE
+        "releaseEditorUiResources();PostQuitMessage(0);"
+        "releaseEditorUiResources();releaseStudioResources();PostQuitMessage(0);"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
     set(SMOKE_EDITOR_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/SmokeDetectorWin32Editor.generated.cpp")
     file(WRITE "${SMOKE_EDITOR_GENERATED}" "${SMOKE_EDITOR_SOURCE}")
 
