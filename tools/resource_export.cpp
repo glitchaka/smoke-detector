@@ -85,7 +85,8 @@ int main(int argc, char** argv) {
                 std::cout << "[" << (current + 1) << "/" << total << "] ";
                 if (!sourceLabel.empty()) std::cout << sourceLabel << " :: ";
                 std::cout << resourceId << std::endl;
-            });
+            },
+            true);
 
         std::uint64_t totalBytes = 0;
         std::size_t totalResources = 0;
