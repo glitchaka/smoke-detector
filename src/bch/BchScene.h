@@ -49,6 +49,14 @@ struct Texture {
 struct Material {
     std::string name;
     std::string textureName;
+
+    // H3DTextureCoord[0]. The first four bytes are flags, DCC transform type,
+    // mapping type and reference camera. Earlier Smoke Detector builds skipped
+    // these bytes and therefore applied Maya-like UV math to every material.
+    std::uint8_t uvFlags = 0;
+    std::uint8_t uvTransformType = 0; // 0 Maya, 1 SoftImage, 2 3ds Max.
+    std::uint8_t uvMappingType = 0;
+    std::int8_t uvReferenceCamera = -1;
     float uvScaleU = 1.0f;
     float uvScaleV = 1.0f;
     float uvRotation = 0.0f;
