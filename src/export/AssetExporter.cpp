@@ -87,7 +87,9 @@ Vec2 materialUv(const Material* material, Vec2 uv) {
 }
 
 void writeTga(const std::filesystem::path& path, const promptemon::bch::Texture& texture) {
-    if (texture.width <= 0 || texture.height <= 0 || texture.rgba.size() < static_cast<std::size_t>(texture.width) * texture.height * 4) return;
+    if (texture.width <= 0 || texture.height <= 0 ||
+        texture.rgba.size() < static_cast<std::size_t>(texture.width) * texture.height * 4) return;
+
     std::filesystem::create_directories(path.parent_path());
     std::ofstream out(path, std::ios::binary);
     if (!out) throw std::runtime_error("Could not create texture: " + path.string());
@@ -110,12 +112,12 @@ void writeTga(const std::filesystem::path& path, const promptemon::bch::Texture&
     }
 }
 
-void writeObjAndMtl(const std::filesystem::path& previewDir, const Scene& scene,
-                    std::unordered_map<std::string, std::string>& textureFiles) {
-    std::filesystem::create_directories(previewDir);
-    std::ofstream obj(previewDir / "model.obj");
-    std::ofstream mtl(previewDir / "model.mtl");
-    if (!obj || !mtl) throw std::runtime_error("Could not create OBJ preview");
+void writeObjAndMtl(const std::filesystem::path& modelDir, const Scene& scene,
+                    const std::unordered_map<std::string, std::string>& textureFiles) {
+    std::filesystem::create_directories(modelDir);
+    std::ofstream obj(modelDir / "model.obj");
+    std::ofstream mtl(modelDir / "model.mtl");
+    if (!obj || !mtl) throw std::runtime_error("Could not create OBJ model");
 
     obj << "mtllib model.mtl\n";
     const auto pose = scene.samplePose(nullptr, 0.0f);
@@ -124,7 +126,8 @@ void writeObjAndMtl(const std::filesystem::path& previewDir, const Scene& scene,
     for (std::size_t mi = 0; mi < scene.meshes().size(); ++mi) {
         const auto& mesh = scene.meshes()[mi];
         const Material* material = mesh.materialId < scene.materials().size() ? &scene.materials()[mesh.materialId] : nullptr;
-        const std::string materialName = safeName(material && !material->name.empty() ? material->name : "material_" + std::to_string(mi));
+        const std::string materialName = safeName(material && !material->name.empty()
+            ? material->name : "material_" + std::to_string(mi));
 
         obj << "o " << safeName(mesh.name) << "\n";
         obj << "usemtl " << materialName << "\n";
@@ -134,7 +137,7 @@ void writeObjAndMtl(const std::filesystem::path& previewDir, const Scene& scene,
             obj << "v " << p.x << ' ' << p.y << ' ' << p.z << "\n";
         }
         for (const auto& vertex : mesh.vertices) {
-            Vec2 uv = materialUv(material, vertex.uv);
+            const Vec2 uv = materialUv(material, vertex.uv);
             obj << "vt " << uv.x << ' ' << (1.0f - uv.y) << "\n";
         }
         for (const auto& vertex : mesh.vertices) {
@@ -168,14 +171,16 @@ ExportResult AssetExporter::exportModel(const promptemon::rom::RomModelArchive& 
     const std::string romName = safeName(payload.rom.path.stem().string());
     const std::string assetName = modelStem(leafName(payload.resourceId));
     const std::filesystem::path directory = exportRoot / romName / assetName;
+    const std::filesystem::path modelDirectory = directory / "model";
 
-    std::filesystem::create_directories(directory / "model");
+    std::filesystem::create_directories(modelDirectory);
     std::filesystem::create_directories(directory / "animations");
     std::filesystem::create_directories(directory / "audio");
     std::filesystem::create_directories(directory / "textures");
-    std::filesystem::create_directories(directory / "preview");
 
-    writeBytes(directory / "model" / "model.bch", payload.modelBch);
+    // Keep the original BCH for lossless/reversible use, but make the usable
+    // interchange model the obvious file in the same directory.
+    writeBytes(modelDirectory / "source.bch", payload.modelBch);
 
     for (std::size_t i = 0; i < payload.animations.size(); ++i) {
         std::string filename = exportedLeaf(payload.animations[i].romfsPath);
@@ -208,7 +213,8 @@ ExportResult AssetExporter::exportModel(const promptemon::rom::RomModelArchive& 
         writeTga(directory / "textures" / filename, texture);
         textureFiles[texture.name] = filename;
     }
-    writeObjAndMtl(directory / "preview", scene, textureFiles);
+
+    writeObjAndMtl(modelDirectory, scene, textureFiles);
 
     std::ofstream manifest(directory / "manifest.json");
     if (!manifest) throw std::runtime_error("Could not create export manifest");
@@ -217,6 +223,8 @@ ExportResult AssetExporter::exportModel(const promptemon::rom::RomModelArchive& 
     manifest << "  \"provider\": \"" << jsonEscape(payload.provider) << "\",\n";
     manifest << "  \"model_resource\": \"" << jsonEscape(payload.resourceId) << "\",\n";
     manifest << "  \"model_name\": \"" << jsonEscape(scene.modelName()) << "\",\n";
+    manifest << "  \"interchange_model\": \"model/model.obj\",\n";
+    manifest << "  \"source_model\": \"model/source.bch\",\n";
     manifest << "  \"meshes\": " << scene.meshes().size() << ",\n";
     manifest << "  \"bones\": " << scene.bones().size() << ",\n";
     manifest << "  \"textures\": " << scene.textures().size() << ",\n";
@@ -244,6 +252,7 @@ ExportResult AssetExporter::exportModel(const promptemon::rom::RomModelArchive& 
 
     ExportResult result;
     result.directory = directory;
+    result.interchangeModel = modelDirectory / "model.obj";
     result.animationContainers = payload.animations.size();
     result.animationClips = scene.animations().size();
     result.textures = scene.textures().size();
