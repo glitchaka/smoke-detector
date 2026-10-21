@@ -1,5 +1,6 @@
 #include "rom/RumbleWorldArchive.h"
 
+#include "rom/Lz11.h"
 #include "rom/Lzh8.h"
 
 #include <algorithm>
@@ -41,9 +42,31 @@ bool magicAt(const std::vector<std::uint8_t>& data, std::size_t offset, const ch
     return true;
 }
 
+std::string lowerCopy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+std::vector<std::uint8_t> decompressKnown(std::vector<std::uint8_t> data) {
+    for (unsigned pass = 0; pass < 4; ++pass) {
+        if (Lzh8::isCompressed(data)) {
+            data = Lzh8::decompress(data);
+            continue;
+        }
+        if (Lz11::isCompressed(data)) {
+            data = Lz11::decompress(data);
+            continue;
+        }
+        break;
+    }
+    return data;
+}
+
 std::string utf16Ascii(const std::vector<std::uint8_t>& data, std::size_t offset, std::uint32_t byteLength) {
     if (offset + byteLength > data.size() || (byteLength & 1u) != 0) {
-        throw std::runtime_error("Invalid RomFS UTF-16 name");
+        throw std::runtime_error("Invalid UTF-16 name");
     }
     std::string out;
     out.reserve(byteLength / 2u);
@@ -55,8 +78,44 @@ std::string utf16Ascii(const std::vector<std::uint8_t>& data, std::size_t offset
     return out;
 }
 
+std::string utf16ZAscii(const std::vector<std::uint8_t>& data, std::size_t offset, std::size_t limit) {
+    std::string out;
+    while (offset + 1 < data.size() && offset + 1 < limit) {
+        const std::uint16_t ch = static_cast<std::uint16_t>(data[offset]) |
+                                 static_cast<std::uint16_t>(data[offset + 1] << 8);
+        offset += 2;
+        if (ch == 0) break;
+        out.push_back(ch <= 0x7Fu ? static_cast<char>(ch) : '?');
+    }
+    return out;
+}
+
 bool endsWith(const std::string& value, const std::string& suffix) {
     return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+bool isBchPath(const std::string& path) {
+    const std::string p = lowerCopy(path);
+    return endsWith(p, ".bch") || endsWith(p, ".bch.cx");
+}
+
+bool isAnimationLeaf(const std::string& path) {
+    const std::string p = lowerCopy(path);
+    const auto slash = p.find_last_of("/:");
+    const std::string leaf = p.substr(slash == std::string::npos ? 0 : slash + 1);
+    return leaf == "anim.bch" || leaf == "anim.bch.cx" ||
+           leaf == "mii_anim.bch" || leaf == "mii_anim.bch.cx" ||
+           leaf.find("animation") != std::string::npos;
+}
+
+bool couldBeDarcContainer(const std::string& path) {
+    const std::string p = lowerCopy(path);
+    if (endsWith(p, ".bch.cx")) return false;
+    return endsWith(p, ".arc") || endsWith(p, ".arc.xc") || endsWith(p, ".arc.cx") ||
+           endsWith(p, ".darc") || endsWith(p, ".darc.cx") ||
+           endsWith(p, ".carc") || endsWith(p, ".carc.cx") ||
+           endsWith(p, ".garc") || endsWith(p, ".garc.cx") ||
+           endsWith(p, ".xc") || endsWith(p, ".cx");
 }
 
 struct DirectoryEntry {
@@ -108,13 +167,8 @@ bool RumbleWorldArchive::open(const std::filesystem::path& romPath) {
         std::uint64_t romFsSize = 0;
         bool found = false;
 
-        // Raw CXI/NCCH image.
-        if (magicAt(outer, 0x100, "NCCH")) {
-            found = tryNcch(0, romFsBase, romFsSize);
-        }
+        if (magicAt(outer, 0x100, "NCCH")) found = tryNcch(0, romFsBase, romFsSize);
 
-        // Cartridge image (.3ds/.cci): walk all NCSD partition entries and use
-        // the first partition with a readable, unencrypted RomFS.
         if (!found && magicAt(outer, 0x100, "NCSD")) {
             for (std::size_t i = 0; i < 8 && 0x128 + i * 8 <= outer.size(); ++i) {
                 const std::uint64_t partitionBase = static_cast<std::uint64_t>(u32(outer, 0x120 + i * 8)) * 0x200u;
@@ -126,7 +180,6 @@ bool RumbleWorldArchive::open(const std::filesystem::path& romPath) {
             }
         }
 
-        // CIA: locate its first NCCH content using the aligned CIA sections.
         if (!found) {
             if (outer.size() < 0x20) throw std::runtime_error("Unsupported 3DS container");
             const std::uint32_t headerSize = u32(outer, 0x00);
@@ -142,11 +195,10 @@ bool RumbleWorldArchive::open(const std::filesystem::path& romPath) {
             }
         }
 
-        if (!found) {
-            throw std::runtime_error("No readable RomFS found; the 3DS content may be encrypted or unsupported");
-        }
+        if (!found) throw std::runtime_error("No readable RomFS found; the 3DS content may be encrypted or unsupported");
 
         indexRomFs(romFsBase, romFsSize);
+        indexNestedArchives();
         return !files_.empty();
     } catch (...) {
         close();
@@ -155,6 +207,7 @@ bool RumbleWorldArchive::open(const std::filesystem::path& romPath) {
 }
 
 void RumbleWorldArchive::close() {
+    nestedFiles_.clear();
     files_.clear();
     path_.clear();
 }
@@ -167,30 +220,54 @@ std::vector<std::string> RumbleWorldArchive::pokemonModels() const {
     std::vector<std::string> result;
     for (const auto& [path, record] : files_) {
         (void)record;
-        if (path.rfind("pii/", 0) == 0 && path != "pii/anim.bch.cx" && endsWith(path, ".bch.cx")) {
-            result.push_back(path);
-        }
+        const std::string lowered = lowerCopy(path);
+        if (lowered.rfind("pii/", 0) == 0 && isBchPath(lowered) && !isAnimationLeaf(lowered)) result.push_back(path);
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
+std::vector<std::string> RumbleWorldArchive::modelResources() const {
+    std::vector<std::string> result;
+    result.reserve(files_.size() + nestedFiles_.size());
+    for (const auto& [path, record] : files_) {
+        (void)record;
+        if (isBchPath(path) && !isAnimationLeaf(path)) result.push_back(path);
+    }
+    for (const auto& [path, record] : nestedFiles_) {
+        (void)record;
+        if (isBchPath(path) && !isAnimationLeaf(path)) result.push_back(path);
     }
     std::sort(result.begin(), result.end());
     return result;
 }
 
 bool RumbleWorldArchive::has(const std::string& romfsPath) const {
-    return files_.find(romfsPath) != files_.end();
+    return files_.find(romfsPath) != files_.end() || nestedFiles_.find(romfsPath) != nestedFiles_.end();
 }
 
 std::vector<std::uint8_t> RumbleWorldArchive::extract(const std::string& romfsPath) const {
-    const auto it = files_.find(romfsPath);
-    if (it == files_.end()) throw std::runtime_error("RomFS file not found: " + romfsPath);
-    if (it->second.size > static_cast<std::uint64_t>(static_cast<std::size_t>(-1))) {
-        throw std::runtime_error("RomFS file is too large to extract");
+    if (const auto direct = files_.find(romfsPath); direct != files_.end()) {
+        if (direct->second.size > static_cast<std::uint64_t>(static_cast<std::size_t>(-1))) {
+            throw std::runtime_error("RomFS file is too large to extract");
+        }
+        return read(direct->second.absoluteOffset, static_cast<std::size_t>(direct->second.size));
     }
-    return read(it->second.absoluteOffset, static_cast<std::size_t>(it->second.size));
+
+    const auto nested = nestedFiles_.find(romfsPath);
+    if (nested == nestedFiles_.end()) throw std::runtime_error("RomFS resource not found: " + romfsPath);
+
+    auto parentData = decompressKnown(extract(nested->second.parentPath));
+    const std::size_t begin = nested->second.offset;
+    const std::size_t size = nested->second.size;
+    if (begin > parentData.size() || size > parentData.size() - begin) {
+        throw std::runtime_error("Invalid nested DARC resource bounds: " + romfsPath);
+    }
+    return std::vector<std::uint8_t>(parentData.begin() + begin, parentData.begin() + begin + size);
 }
 
 std::vector<std::uint8_t> RumbleWorldArchive::extractBch(const std::string& romfsPath) const {
-    auto data = extract(romfsPath);
-    if (Lzh8::isCompressed(data)) data = Lzh8::decompress(data);
+    auto data = decompressKnown(extract(romfsPath));
     if (data.size() < 4 || data[0] != 'B' || data[1] != 'C' || data[2] != 'H' || data[3] != 0) {
         throw std::runtime_error("Extracted resource is not BCH: " + romfsPath);
     }
@@ -209,6 +286,96 @@ std::vector<std::uint8_t> RumbleWorldArchive::read(std::uint64_t offset, std::si
         if (input.gcount() != static_cast<std::streamsize>(size)) throw std::runtime_error("Unexpected end of ROM container");
     }
     return data;
+}
+
+void RumbleWorldArchive::indexNestedArchives() {
+    std::vector<std::string> containers;
+    containers.reserve(files_.size());
+    for (const auto& [path, record] : files_) {
+        (void)record;
+        if (couldBeDarcContainer(path)) containers.push_back(path);
+    }
+
+    for (const auto& containerPath : containers) {
+        try {
+            const auto direct = files_.find(containerPath);
+            if (direct == files_.end()) continue;
+            auto data = read(direct->second.absoluteOffset, static_cast<std::size_t>(direct->second.size));
+            data = decompressKnown(std::move(data));
+            if (magicAt(data, 0, "darc")) indexDarc(containerPath, data, 0);
+        } catch (...) {
+            // Archive-looking files may use another Nintendo container format.
+            // Keep the original RomFS file exportable and continue with the rest.
+        }
+    }
+}
+
+void RumbleWorldArchive::indexDarc(const std::string& containerPath,
+                                   const std::vector<std::uint8_t>& archiveData,
+                                   unsigned depth) {
+    if (depth > 8) return;
+    if (archiveData.size() < 0x1C || !magicAt(archiveData, 0, "darc")) return;
+    if (!(archiveData[4] == 0xFF && archiveData[5] == 0xFE)) return;
+
+    const std::uint32_t tableOffset = u32(archiveData, 0x10);
+    const std::uint32_t tableSize = u32(archiveData, 0x14);
+    if (tableOffset > archiveData.size() || tableSize > archiveData.size() - tableOffset || tableSize < 12) return;
+
+    const std::uint32_t rootLength = u32(archiveData, tableOffset + 8);
+    if (rootLength == 0 || rootLength > 0x100000u) return;
+    const std::uint64_t entriesBytes = static_cast<std::uint64_t>(rootLength) * 12u;
+    if (entriesBytes > tableSize) return;
+
+    const std::size_t namesOffset = static_cast<std::size_t>(tableOffset + entriesBytes);
+    const std::size_t namesLimit = static_cast<std::size_t>(tableOffset + tableSize);
+
+    struct DirectoryFrame {
+        std::string path;
+        std::uint32_t endIndex = 0;
+    };
+    std::vector<DirectoryFrame> directories;
+    directories.push_back({"", rootLength});
+
+    for (std::uint32_t i = 1; i < rootLength; ++i) {
+        while (!directories.empty() && i >= directories.back().endIndex) directories.pop_back();
+        const std::size_t entryOffset = static_cast<std::size_t>(tableOffset) + static_cast<std::size_t>(i) * 12u;
+        if (entryOffset + 12 > archiveData.size()) break;
+
+        const std::uint32_t flagsAndName = u32(archiveData, entryOffset);
+        const bool isDirectory = (flagsAndName & 0x01000000u) != 0;
+        const std::uint32_t nameOffset = flagsAndName & 0x00FFFFFFu;
+        const std::size_t namePos = namesOffset + nameOffset;
+        if (namePos >= namesLimit) continue;
+
+        const std::string name = utf16ZAscii(archiveData, namePos, namesLimit);
+        const std::string parent = directories.empty() ? std::string{} : directories.back().path;
+        const std::string fullPath = parent.empty() ? name : parent + "/" + name;
+
+        const std::uint32_t dataOffset = u32(archiveData, entryOffset + 4);
+        const std::uint32_t length = u32(archiveData, entryOffset + 8);
+
+        if (isDirectory) {
+            if (!name.empty() && name != ".") directories.push_back({fullPath, length});
+            else directories.push_back({parent, length});
+            continue;
+        }
+
+        if (static_cast<std::uint64_t>(dataOffset) + length > archiveData.size()) continue;
+        const std::string nestedPath = containerPath + "::" + fullPath;
+        nestedFiles_[nestedPath] = NestedFileRecord{containerPath, dataOffset, length};
+
+        if (depth < 8 && couldBeDarcContainer(fullPath)) {
+            try {
+                std::vector<std::uint8_t> child(archiveData.begin() + dataOffset,
+                                                archiveData.begin() + dataOffset + length);
+                child = decompressKnown(std::move(child));
+                if (magicAt(child, 0, "darc")) indexDarc(nestedPath, child, depth + 1);
+            } catch (...) {
+                // Keep the child itself exportable even if its nested container
+                // cannot be decoded.
+            }
+        }
+    }
 }
 
 void RumbleWorldArchive::indexRomFs(std::uint64_t romFsBase, std::uint64_t romFsSize) {
