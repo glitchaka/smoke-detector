@@ -5,6 +5,21 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Keep the readable/decrypted path unchanged. On Windows, generate the crypto
+# translation unit with the standard retail NCCH KeyX table as a built-in
+# fallback so ordinary cartridge images do not require an external key file.
+set(SMOKE_THREEDS_CRYPTO_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/rom/ThreeDsCrypto.cpp")
+if(WIN32)
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/rom/ThreeDsCrypto.cpp" SMOKE_CRYPTO_SOURCE)
+    string(REPLACE
+        "    return std::nullopt;\n}\n\nstruct U128 {"
+        "    KeyFile builtIn;\n    builtIn.path = \"Smoke Detector built-in retail NCCH table\";\n    Block key{};\n    if (parseHexBlock(\"82E9C9BEBFB8BDB875ECC0A07D474374\", key)) builtIn.keyX[0x18] = key;\n    if (parseHexBlock(\"45AD04953992C7C893724A9A7BCE6182\", key)) builtIn.keyX[0x1B] = key;\n    if (parseHexBlock(\"CEE7D8AB30C00DAE850EF5E382AC5AF3\", key)) builtIn.keyX[0x25] = key;\n    if (parseHexBlock(\"B98E95CECA3E4D171F76A94DE934C053\", key)) builtIn.keyX[0x2C] = key;\n    return builtIn;\n}\n\nstruct U128 {"
+        SMOKE_CRYPTO_SOURCE "${SMOKE_CRYPTO_SOURCE}")
+    set(SMOKE_CRYPTO_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/ThreeDsCrypto.generated.cpp")
+    file(WRITE "${SMOKE_CRYPTO_GENERATED}" "${SMOKE_CRYPTO_SOURCE}")
+    set(SMOKE_THREEDS_CRYPTO_SOURCE "${SMOKE_CRYPTO_GENERATED}")
+endif()
+
 add_library(smoke_rom
     src/rom/Lzh8.cpp
     src/rom/Lz11.cpp
@@ -13,7 +28,7 @@ add_library(smoke_rom
     src/rom/RomModelArchive.cpp
     src/rom/CiaBchModelSource.cpp
     src/rom/RumbleWorldArchive.cpp
-    src/rom/ThreeDsCrypto.cpp
+    ${SMOKE_THREEDS_CRYPTO_SOURCE}
 )
 
 target_include_directories(smoke_rom PUBLIC
@@ -115,6 +130,14 @@ if(WIN32)
     string(REPLACE
         "const int visible = std::max(1, (l.right.bottom - top - 12) / rowHeight);"
         "const int visible = std::max<int>(1, static_cast<int>((l.right.bottom - top - 12) / rowHeight));"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "This image is encrypted. Smoke Detector does not bundle Nintendo keys. "
+        "Smoke Detector could not open this encrypted 3DS image automatically. "
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "Place your own aes_keys.txt beside the ROM, then reopen it. "
+        "This image uses a 3DS crypto method that is not supported yet. "
         SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
     string(REPLACE
         "int WINAPI WinMain("
