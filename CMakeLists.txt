@@ -84,8 +84,8 @@ add_executable(smoke_sfx_stub tools/resource_unpack.cpp)
 target_compile_definitions(smoke_sfx_stub PRIVATE SMOKE_SFX_STUB=1)
 
 if(WIN32)
-    # Build a private Studio3 backend include. The new editor owns the window
-    # and only reuses the proven ROM/model/OpenGL plumbing.
+    # Build a private Studio3 backend include. The editor owns the window and
+    # reuses the proven ROM/model/OpenGL plumbing.
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/demo/SmokeDetectorWin32Studio3.cpp" SMOKE_STUDIO_SOURCE)
     string(REPLACE
         "#include <vector>"
@@ -147,19 +147,14 @@ if(WIN32)
     set(SMOKE_STUDIO_BASE "${CMAKE_CURRENT_BINARY_DIR}/SmokeDetectorStudioBase.generated.inc")
     file(WRITE "${SMOKE_STUDIO_BASE}" "${SMOKE_STUDIO_SOURCE}")
 
-    # Inject the edited-asset exporter inside the editor's anonymous namespace
-    # so it can bake mesh, rig, UV and image-layer changes into the OBJ package.
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/demo/SmokeDetectorWin32Editor.cpp" SMOKE_EDITOR_SOURCE)
 
     # WIN32_LEAN_AND_MEAN omits COM/OLE declarations required by GDI+ imaging.
-    # Inject them before gdiplus.h so IStream/PROPID are defined on MSVC.
     string(REPLACE
         "#include <gdiplus.h>"
         "#include <objidl.h>\n#include <propidl.h>\n#include <gdiplus.h>"
         SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
 
-    # PixelFormat32bppARGB is a GDI+ macro/constant, not a namespaced symbol.
-    # Remove the using-declaration without depending on LF vs CRLF line endings.
     string(REPLACE
         "using Gdiplus::PixelFormat32bppARGB;"
         ""
@@ -170,9 +165,8 @@ if(WIN32)
         "const int visible=std::max<int>(1,static_cast<int>((l.right.bottom-y-8)/EDIT_ROW_H));"
         SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
 
-    # Mode tabs are resource browsers too. Do not disable them just because a
-    # 3D scene could not be parsed; Animal Crossing, for example, exposes many
-    # BCRES/texture/animation files even before a model decoder succeeds.
+    # Resource modes stay accessible even when the selected resource is not a
+    # decoded 3D scene.
     string(REPLACE
         "eButton(dc, l.modeButtons[static_cast<std::size_t>(i)], labels[i], active, i == 0 || gScene != nullptr);"
         "eButton(dc, l.modeButtons[static_cast<std::size_t>(i)], labels[i], active, !gDumping);"
@@ -193,15 +187,43 @@ if(WIN32)
         "eFill(dc,client,E_BG);const auto l=editorLayout(hwnd);paintEditorTop(dc,l);paintEditorLeft(dc,l);paintCenterHeader(dc,l);if(!gScene)paintResourceModeContent(dc,l);else{if(gEditorMode==EditorMode::Texture)paintUvCanvas(dc,l);if(gEditorMode==EditorMode::Animate)paintTimeline(dc,l);}paintEditorRight(dc,l);paintEditorStatus(dc,l);"
         SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
 
+    # Keep the loaded 3D scene visible in Model/Rig/Texture/Animate. The old
+    # generated handler hid the render child for Texture and Animate.
     string(REPLACE
         "for(int i=0;i<5;++i){if(eHit(l.modeButtons[static_cast<std::size_t>(i)],x,y)){if(i==0||gScene){gEditorMode=static_cast<EditorMode>(i);editorLayoutControls(hwnd);InvalidateRect(hwnd,nullptr,FALSE);}return;}}"
-        "for(int i=0;i<5;++i){if(eHit(l.modeButtons[static_cast<std::size_t>(i)],x,y)){gEditorMode=static_cast<EditorMode>(i);gCategory=i==0?0:(i==3?3:(i==4?2:1));gTreeScroll=0;applyFilter();if(gSelectedItem<gItems.size()){if(i==1||i==2)activateEditorItem(gSelectedItem);else{gPreview3D=false;if(gRenderWindow)ShowWindow(gRenderWindow,SW_HIDE);setStatus(gItems[gSelectedItem].id);}}editorLayoutControls(hwnd);InvalidateRect(hwnd,nullptr,FALSE);return;}}"
+        "for(int i=0;i<5;++i){if(eHit(l.modeButtons[static_cast<std::size_t>(i)],x,y)){gEditorMode=static_cast<EditorMode>(i);gCategory=i==0?0:(i==3?3:(i==4?2:1));gTreeScroll=0;applyFilter();if(gScene){gPreview3D=true;if(gRenderWindow)ShowWindow(gRenderWindow,SW_SHOW);if(i==2)setStatus(\"Rig: left drag edits selected joint | W move | E rotate | Ctrl Z | right drag orbit\");else if(i==4)setStatus(\"Animate: New clip / keyframes enabled | drag joint in viewport | W/E/R\");}else if(gSelectedItem<gItems.size()&&gItems[gSelectedItem].category==1){activateEditorItem(gSelectedItem);}else{gPreview3D=false;if(gRenderWindow)ShowWindow(gRenderWindow,SW_HIDE);}editorLayoutControls(hwnd);InvalidateRect(hwnd,nullptr,FALSE);return;}}"
         SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
 
+    # Show the skeleton while authoring animation as well as while editing rig.
+    string(REPLACE
+        "if (gEditorMode == EditorMode::Rig && !gScene->bones().empty()) {"
+        "if ((gEditorMode == EditorMode::Rig || gEditorMode == EditorMode::Animate) && !gScene->bones().empty()) {"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
+    # Wire the authoring backend and direct viewport interaction into the
+    # generated editor before its click/window procedures are compiled.
     string(REPLACE
         "void editorClick(HWND hwnd,int x,int y){"
-        "#include \"SmokeDetectorWin32EditorExport.inc\"\n\nvoid editorClick(HWND hwnd,int x,int y){"
+        "#include \"SmokeDetectorWin32EditorExport.inc\"\n#include \"SmokeDetectorWin32ViewportInteraction.inc\"\n\nvoid editorClick(HWND hwnd,int x,int y){"
         SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
+    # The animation authoring panel already existed in the backend but the
+    # window still painted/clicked the old playback-only inspector.
+    string(REPLACE
+        "case WM_PAINT:paintEditor(hwnd);return 0;"
+        "case WM_PAINT:authorPaintEditor(hwnd);return 0;"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+    string(REPLACE
+        "handleAnimateInspectorClick(l,x,y);"
+        "authorHandleAnimateClick(l,x,y);"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
+    # Use the editor-aware render proc instead of the legacy camera-only proc.
+    string(REPLACE
+        "renderClass.lpfnWndProc=RenderProc;"
+        "renderClass.lpfnWndProc=EditorRenderProc;"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
     string(REPLACE
         "exportStudioSelected();return;"
         "exportEditorSelected();return;"
