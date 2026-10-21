@@ -1,8 +1,8 @@
 # smoke-detector
 
-Visor y extractor local de recursos 3D desde ROMs.
+Visor y extractor local de recursos desde ROMs.
 
-Esta herramienta nació como una variante independiente de `promptemon-steidium`. No depende del repo del juego y está enfocada en inspeccionar y exportar assets.
+Esta herramienta nació como una variante independiente de `promptemon-steidium`. No depende del repo del juego y está enfocada en inspeccionar y exportar assets sin incluir ROMs ni contenido propietario en el repositorio.
 
 ## ROMs
 
@@ -12,11 +12,17 @@ Coloca tus dumps locales dentro de:
 smoke-detector/roms/
 ```
 
-La biblioteca detecta GB, GBC, GBA, NDS, CIA, 3DS, CCI y CXI. Las ROMs 3DS con un RomFS legible y recursos BCH pueden aportar modelos 3D. Las ROMs antiguas siguen apareciendo en la biblioteca aunque no contengan geometría 3D compatible.
+La biblioteca detecta GB, GBC, GBA, NDS, CIA, 3DS, CCI y CXI. Puedes tener varias ROMs simultáneamente.
 
-Puedes tener varias ROMs simultáneamente. `Modelos...` reúne en un solo catálogo los modelos encontrados en todas las fuentes 3D compatibles y muestra la ROM de origen.
+La lectura de recursos está separada del visor 3D:
 
-## Visor
+- **Nintendo 3DS:** indexa y exporta todos los archivos de un RomFS legible. Si el contenido está cifrado o no se puede abrir, conserva acceso a la imagen ROM como recurso bruto.
+- **Nintendo DS:** lee el encabezado, ARM9, ARM7 y el árbol NitroFS mediante FNT/FAT.
+- **GB / GBC / GBA:** conserva la imagen completa y el encabezado de cartucho como base sin inventar un sistema de archivos que esas plataformas no tienen. Los decodificadores específicos de juego se pueden montar sobre esta capa.
+
+## Visor 3D
+
+Las ROMs 3DS con RomFS legible y recursos BCH pueden aportar modelos 3D.
 
 - `Modelos...`: busca y cambia el modelo 3D sin reiniciar.
 - `ROMs...`: muestra las ROMs detectadas y qué proveedor puede leerlas.
@@ -26,9 +32,9 @@ Puedes tener varias ROMs simultáneamente. `Modelos...` reúne en un solo catál
 - rueda: zoom.
 - `Exportar`: crea un paquete del modelo seleccionado.
 
-## Exportación
+## Exportación de modelos
 
-Los paquetes se escriben localmente en:
+Los paquetes de modelos se escriben localmente en:
 
 ```text
 exports/<ROM>/<MODELO>/
@@ -42,13 +48,37 @@ animations/*.bch         contenedores BCH de animación asociados
 textures/*.tga           texturas decodificadas
 preview/model.obj        vista estática interoperable
 preview/model.mtl        materiales del OBJ
-audio/*                  audio o bancos de audio 3DS relacionados
+audio/*                  audio o bancos de audio relacionados
 manifest.json             origen, recursos y clips detectados
 ```
 
-Para audio se prefieren recursos cuyo nombre/ruta coincide con el modelo. Cuando el juego guarda los sonidos dentro de un banco global, se conserva el banco `BCSAR/CSAR` para no perder esos datos. Los contenedores de audio se exportan sin recomprimir ni convertir destructivamente.
+## Exportación completa de recursos
 
-ROMs, builds y assets exportados están ignorados por Git y no se suben al repositorio público.
+`resource_export` recorre todas las ROMs de `roms/` y genera tres representaciones:
+
+```text
+exports/resources/<ROM>/         directorio directamente utilizable
+exports/resources/<ROM>.sdpack  paquete portable smoke-detector
+exports/resources/<ROM>.resources.exe   autoextraíble en Windows
+```
+
+Uso:
+
+```powershell
+.\build\Release\resource_export.exe .\roms .\exports
+```
+
+Cada directorio contiene `manifest.json` y `files/` conservando la jerarquía del recurso original. El manifiesto indica ROM, formato, proveedor, id original, ruta exportada, tipo y tamaño.
+
+El formato `.sdpack` es deliberadamente simple y autocontenido. Puede extraerse con:
+
+```powershell
+.\build\Release\resource_unpack.exe .\exports\resources\mi_rom.sdpack
+```
+
+En Windows, si `smoke_sfx_stub.exe` está junto a `resource_export.exe`, se genera además un `.resources.exe`. Ese archivo lleva el paquete adjunto y se extrae a sí mismo al ejecutarlo; no necesita la ROM original ni smoke-detector para entregar los recursos.
+
+> Una ROM no equivale a un sistema de archivos universal. 3DS y NDS permiten enumerar archivos; GB/GBC/GBA requieren decodificadores específicos por juego para convertir gráficos, mapas, audio y tablas internas a formatos de alto nivel. La arquitectura nueva deja esos decodificadores como proveedores enchufables en lugar de etiquetar bytes arbitrarios como assets.
 
 ## Windows
 
@@ -58,8 +88,13 @@ Desde la raíz:
 .\build.cmd
 ```
 
-El ejecutable queda en:
+Los ejecutables quedan en:
 
 ```text
 build\Release\smoke_detector.exe
+build\Release\resource_export.exe
+build\Release\resource_unpack.exe
+build\Release\smoke_sfx_stub.exe
 ```
+
+ROMs, builds y assets exportados están ignorados por Git y no se suben al repositorio público.

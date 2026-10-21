@@ -18,6 +18,17 @@ target_include_directories(smoke_rom PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+add_library(smoke_resource
+    src/rom/GenericRomResourceSource.cpp
+    src/rom/RomResourceArchive.cpp
+)
+
+target_include_directories(smoke_resource PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(smoke_resource PUBLIC smoke_rom)
+
 add_library(smoke_bch
     src/bch/BchScene.cpp
 )
@@ -28,19 +39,28 @@ target_include_directories(smoke_bch PUBLIC
 
 add_library(smoke_export
     src/export/AssetExporter.cpp
+    src/export/ResourcePackageExporter.cpp
 )
 
 target_include_directories(smoke_export PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(smoke_export PUBLIC smoke_rom smoke_bch)
+target_link_libraries(smoke_export PUBLIC smoke_rom smoke_resource smoke_bch)
 
 add_executable(rom_probe tools/rom_probe.cpp)
 target_link_libraries(rom_probe PRIVATE smoke_rom)
 
 add_executable(rumble_probe tools/rumble_probe.cpp)
 target_link_libraries(rumble_probe PRIVATE smoke_rom)
+
+add_executable(resource_export tools/resource_export.cpp)
+target_link_libraries(resource_export PRIVATE smoke_resource smoke_export)
+
+add_executable(resource_unpack tools/resource_unpack.cpp)
+
+add_executable(smoke_sfx_stub tools/resource_unpack.cpp)
+target_compile_definitions(smoke_sfx_stub PRIVATE SMOKE_SFX_STUB=1)
 
 if(WIN32)
     add_executable(smoke_detector WIN32
@@ -49,6 +69,7 @@ if(WIN32)
     target_compile_definitions(smoke_detector PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_link_libraries(smoke_detector PRIVATE
         smoke_rom
+        smoke_resource
         smoke_bch
         smoke_export
         opengl32
