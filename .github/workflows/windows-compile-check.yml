@@ -1,0 +1,13 @@
+name: Windows compile check
+on:
+  push:
+    branches: [ci-check-windows]
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build Smoke Detector
+        run: cmake --build build --config Release --target smoke_detector resource_export resource_unpack smoke_sfx_stub
