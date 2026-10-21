@@ -1,12 +1,15 @@
 #include "export/ResourcePackageExporter.h"
 
 #include "rom/IRomResourceSource.h"
+#include "rom/Lz11.h"
+#include "rom/Lzh8.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -51,6 +54,47 @@ std::filesystem::path safeRelative(const std::string& resourceId) {
     flush();
     if (out.empty()) out = "asset.bin";
     return out;
+}
+
+std::filesystem::path decodedRelative(const std::string& resourceId) {
+    auto path = safeRelative(resourceId);
+    std::string filename = path.filename().string();
+    std::string lowered = filename;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (lowered.size() >= 3 && lowered.compare(lowered.size() - 3, 3, ".cx") == 0) {
+        filename.resize(filename.size() - 3);
+        path.replace_filename(filename.empty() ? "decoded.bin" : filename);
+    } else if (lowered.size() >= 3 && lowered.compare(lowered.size() - 3, 3, ".xc") == 0) {
+        filename.resize(filename.size() - 3);
+        path.replace_filename(filename.empty() ? "decoded.bin" : filename);
+    } else {
+        path += ".decoded";
+    }
+    return std::filesystem::path("decoded") / path;
+}
+
+std::optional<std::vector<std::uint8_t>> decodeKnownCompression(const std::vector<std::uint8_t>& original) {
+    if (!promptemon::rom::Lzh8::isCompressed(original) && !promptemon::rom::Lz11::isCompressed(original)) return std::nullopt;
+
+    std::vector<std::uint8_t> data = original;
+    bool changed = false;
+    for (unsigned pass = 0; pass < 4; ++pass) {
+        if (promptemon::rom::Lzh8::isCompressed(data)) {
+            data = promptemon::rom::Lzh8::decompress(data);
+            changed = true;
+            continue;
+        }
+        if (promptemon::rom::Lz11::isCompressed(data)) {
+            data = promptemon::rom::Lz11::decompress(data);
+            changed = true;
+            continue;
+        }
+        break;
+    }
+    if (!changed) return std::nullopt;
+    return data;
 }
 
 void writeBytes(const std::filesystem::path& path, const std::vector<std::uint8_t>& bytes) {
@@ -192,9 +236,10 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
         std::filesystem::create_directories(result.directory / "files");
 
         std::vector<PackedFile> packed;
+        std::vector<std::string> derivedManifest;
         std::ostringstream manifest;
         manifest << "{\n";
-        manifest << "  \"schema\": \"smoke-detector-resource-package-v1\",\n";
+        manifest << "  \"schema\": \"smoke-detector-resource-package-v2\",\n";
         manifest << "  \"rom\": \"" << jsonEscape(summary.rom.path.filename().string()) << "\",\n";
         manifest << "  \"format\": \"" << jsonEscape(promptemon::rom::RomInspector::formatName(summary.rom.format)) << "\",\n";
         manifest << "  \"game\": \"" << jsonEscape(summary.rom.detectedGame) << "\",\n";
@@ -209,6 +254,7 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
             const auto relative = std::filesystem::path("files") / safeRelative(resource.id);
             const auto destination = result.directory / relative;
             std::uint64_t size = 0;
+            std::optional<std::vector<std::uint8_t>> decoded;
 
             if (resource.kind == promptemon::rom::ResourceKind::RawRom) {
                 copyFile(summary.rom.path, destination);
@@ -218,6 +264,12 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
                 const auto payload = archive.extract(virtualPath);
                 writeBytes(destination, payload.bytes);
                 size = static_cast<std::uint64_t>(payload.bytes.size());
+                try {
+                    decoded = decodeKnownCompression(payload.bytes);
+                } catch (...) {
+                    // A bad or unsupported compressed stream must not block the
+                    // original resource from being preserved in the dump.
+                }
             }
 
             result.bytes += size;
@@ -231,7 +283,31 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
                      << "\", \"size\": " << size << "}";
             if (i + 1 != resources.size()) manifest << ',';
             manifest << '\n';
+
+            if (decoded) {
+                const auto decodedRel = std::filesystem::path("files") / decodedRelative(resource.id);
+                const auto decodedDest = result.directory / decodedRel;
+                writeBytes(decodedDest, *decoded);
+                const std::uint64_t decodedSize = static_cast<std::uint64_t>(decoded->size());
+                result.bytes += decodedSize;
+                ++result.resources;
+                if (buildPackages) packed.push_back({decodedRel.generic_string(), decodedDest, decodedSize});
+
+                std::ostringstream entry;
+                entry << "    {\"source\": \"" << jsonEscape(resource.id)
+                      << "\", \"path\": \"" << jsonEscape(decodedRel.generic_string())
+                      << "\", \"compression\": \"LZH8/LZ11\", \"size\": " << decodedSize << "}";
+                derivedManifest.push_back(entry.str());
+            }
+
             ++currentResource;
+        }
+        manifest << "  ],\n";
+        manifest << "  \"derived\": [\n";
+        for (std::size_t i = 0; i < derivedManifest.size(); ++i) {
+            manifest << derivedManifest[i];
+            if (i + 1 != derivedManifest.size()) manifest << ',';
+            manifest << '\n';
         }
         manifest << "  ]\n}\n";
 
