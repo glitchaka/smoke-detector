@@ -124,6 +124,13 @@ if(WIN32)
     # so it can bake mesh, rig, UV and image-layer changes into the OBJ package.
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/demo/SmokeDetectorWin32Editor.cpp" SMOKE_EDITOR_SOURCE)
 
+    # WIN32_LEAN_AND_MEAN omits COM/OLE declarations required by GDI+ imaging.
+    # Inject them before gdiplus.h so IStream/PROPID are defined on MSVC.
+    string(REPLACE
+        "#include <gdiplus.h>"
+        "#include <objidl.h>\n#include <propidl.h>\n#include <gdiplus.h>"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
     # PixelFormat32bppARGB is a GDI+ macro/constant, not a namespaced symbol.
     # Remove the using-declaration without depending on LF vs CRLF line endings.
     string(REPLACE
