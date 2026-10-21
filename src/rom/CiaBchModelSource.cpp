@@ -92,7 +92,15 @@ public:
         if (!archive_->open(info_.path)) {
             throw std::runtime_error("Could not open 3DS RomFS: " + info_.path.string());
         }
-        const auto paths = archive_->modelResources();
+
+        // Pokemon Rumble World stores Pokemon models under pii/.  Prefer that
+        // explicit model tree whenever it exists so unrelated BCH resources
+        // (UI effects, 3D helpers, texture containers, etc.) do not appear as
+        // Pokemon in the model picker.  Other 3DS titles keep the generic BCH
+        // scan as a fallback.
+        auto paths = archive_->pokemonModels();
+        if (paths.empty()) paths = archive_->modelResources();
+
         resources_.reserve(paths.size());
         for (const auto& path : paths) resources_.push_back({path, path});
         if (resources_.empty()) {
