@@ -69,11 +69,9 @@ add_executable(smoke_sfx_stub tools/resource_unpack.cpp)
 target_compile_definitions(smoke_sfx_stub PRIVATE SMOKE_SFX_STUB=1)
 
 if(WIN32)
-    # Studio3 deliberately reuses the renderer/plumbing from the legacy modern
-    # implementation by including that translation unit. Generate the final
-    # source at configure time so the two helper names that also exist in the
-    # legacy implementation remain distinct. The same generation step wires in
-    # the BCH UV transform metadata that older Scene parsing discarded.
+    # The editor reuses the proven ROM/model/rendering plumbing from Studio3,
+    # but owns its entire UI. Build a private include from Studio3 so we can
+    # keep that backend without also instantiating its old main window.
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/demo/SmokeDetectorWin32Studio3.cpp" SMOKE_STUDIO_SOURCE)
     string(REPLACE
         "#include <vector>"
@@ -115,16 +113,21 @@ if(WIN32)
         "fix.transformType = (fix.transformType + 1) % 3;"
         "fix.transformType = fix.transformType >= 2 ? -1 : fix.transformType + 1;"
         SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "int WINAPI WinMain("
+        "int WINAPI SmokeDetectorStudio3LegacyWinMain("
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
 
-    set(SMOKE_STUDIO_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/SmokeDetectorWin32Studio.generated.cpp")
-    file(WRITE "${SMOKE_STUDIO_GENERATED}" "${SMOKE_STUDIO_SOURCE}")
+    set(SMOKE_STUDIO_BASE "${CMAKE_CURRENT_BINARY_DIR}/SmokeDetectorStudioBase.generated.inc")
+    file(WRITE "${SMOKE_STUDIO_BASE}" "${SMOKE_STUDIO_SOURCE}")
 
     add_executable(smoke_detector WIN32
-        "${SMOKE_STUDIO_GENERATED}"
+        src/demo/SmokeDetectorWin32Editor.cpp
     )
     target_compile_definitions(smoke_detector PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_include_directories(smoke_detector PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/demo
+        ${CMAKE_CURRENT_BINARY_DIR}
     )
     if(MSVC)
         target_compile_options(smoke_detector PRIVATE /utf-8)
@@ -136,6 +139,7 @@ if(WIN32)
         smoke_export
         opengl32
         gdi32
+        gdiplus
         user32
         shell32
         comdlg32
