@@ -34,11 +34,14 @@ target_link_libraries(smoke_resource PUBLIC smoke_rom)
 
 add_library(smoke_bch
     src/bch/BchScene.cpp
+    src/bch/BchUvMetadata.cpp
 )
 
 target_include_directories(smoke_bch PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+target_link_libraries(smoke_bch PUBLIC smoke_rom)
 
 add_library(smoke_export
     src/export/AssetExporter.cpp
@@ -66,10 +69,63 @@ add_executable(smoke_sfx_stub tools/resource_unpack.cpp)
 target_compile_definitions(smoke_sfx_stub PRIVATE SMOKE_SFX_STUB=1)
 
 if(WIN32)
+    # Studio3 deliberately reuses the renderer/plumbing from the legacy modern
+    # implementation by including that translation unit. Generate the final
+    # source at configure time so the two helper names that also exist in the
+    # legacy implementation remain distinct. The same generation step wires in
+    # the BCH UV transform metadata that older Scene parsing discarded.
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/demo/SmokeDetectorWin32Studio3.cpp" SMOKE_STUDIO_SOURCE)
+    string(REPLACE
+        "#include <vector>"
+        "#include <vector>\n#include \"bch/BchUvMetadata.h\""
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "void initializeArchives()"
+        "void initializeStudioArchives()"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "initializeArchives();"
+        "initializeStudioArchives();"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "void exportSelected()"
+        "void exportStudioSelected()"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "exportSelected();"
+        "exportStudioSelected();"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "loadModel(model);"
+        "loadModel(model); promptemon::bch::applyMaterialUvMetadata(*gScene, *gArchive, model);"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "int transformType = 0; // 0 Maya, 1 SoftImage, 2 3ds Max"
+        "int transformType = -1; // -1 Source, 0 Maya, 1 SoftImage, 2 3ds Max"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "const int transformType = fix ? fix->transformType : 0;"
+        "const int transformType = (fix && fix->transformType >= 0) ? fix->transformType : (material ? material->uvTransformType : 0);"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "return type == 1 ? \"SoftImage\" : (type == 2 ? \"3ds Max\" : \"Maya\");"
+        "return type < 0 ? \"Source\" : (type == 1 ? \"SoftImage\" : (type == 2 ? \"3ds Max\" : \"Maya\"));"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
+        "fix.transformType = (fix.transformType + 1) % 3;"
+        "fix.transformType = fix.transformType >= 2 ? -1 : fix.transformType + 1;"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+
+    set(SMOKE_STUDIO_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/SmokeDetectorWin32Studio.generated.cpp")
+    file(WRITE "${SMOKE_STUDIO_GENERATED}" "${SMOKE_STUDIO_SOURCE}")
+
     add_executable(smoke_detector WIN32
-        src/demo/SmokeDetectorWin32Studio2.cpp
+        "${SMOKE_STUDIO_GENERATED}"
     )
     target_compile_definitions(smoke_detector PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(smoke_detector PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/demo
+    )
     if(MSVC)
         target_compile_options(smoke_detector PRIVATE /utf-8)
     endif()
