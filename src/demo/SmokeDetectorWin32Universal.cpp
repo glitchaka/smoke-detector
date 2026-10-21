@@ -714,7 +714,7 @@ void paintInspectorAnimations(HDC dc, const WorkbenchLayout& l) {
     const int top = l.inspectorCard.top + 48;
     const int right = l.inspectorCard.right - 14;
     const int rowH = 30;
-    const int visible = std::max(1, (l.inspectorCard.bottom - top - 8) / rowH);
+    const int visible = std::max(1, static_cast<int>((l.inspectorCard.bottom - top - 8) / rowH));
     const std::size_t totalRows = gScene->animations().size() + 1;
     const std::size_t maxScroll = totalRows > static_cast<std::size_t>(visible) ? totalRows - visible : 0;
     gAnimationScroll = std::min(gAnimationScroll, maxScroll);
