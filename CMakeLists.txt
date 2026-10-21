@@ -123,10 +123,14 @@ if(WIN32)
     # Inject the edited-asset exporter inside the editor's anonymous namespace
     # so it can bake mesh, rig, UV and image-layer changes into the OBJ package.
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/demo/SmokeDetectorWin32Editor.cpp" SMOKE_EDITOR_SOURCE)
+
+    # PixelFormat32bppARGB is a GDI+ macro/constant, not a namespaced symbol.
+    # Remove the using-declaration without depending on LF vs CRLF line endings.
     string(REPLACE
-        "using Gdiplus::PixelFormat32bppARGB;\n"
+        "using Gdiplus::PixelFormat32bppARGB;"
         ""
         SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
     string(REPLACE
         "void editorClick(HWND hwnd,int x,int y){"
         "#include \"SmokeDetectorWin32EditorExport.inc\"\n\nvoid editorClick(HWND hwnd,int x,int y){"
