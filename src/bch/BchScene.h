@@ -103,11 +103,15 @@ public:
 
     const std::string& modelName() const { return modelName_; }
     const std::vector<Bone>& bones() const { return bones_; }
+    std::vector<Bone>& bonesMutable() { return bones_; }
     const std::vector<Mesh>& meshes() const { return meshes_; }
+    std::vector<Mesh>& meshesMutable() { return meshes_; }
     const std::vector<Texture>& textures() const { return textures_; }
+    std::vector<Texture>& texturesMutable() { return textures_; }
     const std::vector<Material>& materials() const { return materials_; }
     std::vector<Material>& materialsMutable() { return materials_; }
     const std::vector<Animation>& animations() const { return animations_; }
+    std::vector<Animation>& animationsMutable() { return animations_; }
     const Animation* findAnimation(const std::string& name) const;
     const Texture* findTexture(const std::string& name) const;
     const Texture* textureForMaterial(std::uint16_t materialId) const;
