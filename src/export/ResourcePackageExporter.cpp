@@ -27,13 +27,27 @@ std::string safeComponent(std::string value) {
 }
 
 std::filesystem::path safeRelative(const std::string& resourceId) {
+    // Nested archive entries use "container::child" internally. Convert that
+    // into a real, human-readable folder tree in the dump instead of flattening
+    // it into an opaque filename.
+    std::string expanded;
+    expanded.reserve(resourceId.size() + 32);
+    for (std::size_t i = 0; i < resourceId.size();) {
+        if (i + 1 < resourceId.size() && resourceId[i] == ':' && resourceId[i + 1] == ':') {
+            expanded += ".contents/";
+            i += 2;
+            continue;
+        }
+        expanded.push_back(resourceId[i++]);
+    }
+
     std::filesystem::path out;
     std::string current;
     auto flush = [&]() {
         if (!current.empty() && current != "." && current != "..") out /= safeComponent(current);
         current.clear();
     };
-    for (char c : resourceId) {
+    for (char c : expanded) {
         if (c == '/' || c == '\\') flush();
         else current.push_back(c);
     }
@@ -152,7 +166,8 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
     const promptemon::rom::RomResourceArchive& archive,
     const std::filesystem::path& exportRoot,
     const std::filesystem::path& selfExtractorStub,
-    ProgressCallback progress) {
+    ProgressCallback progress,
+    bool buildPackages) {
 
     std::vector<ResourcePackageResult> results;
     const auto summaries = archive.sourceSummaries();
@@ -196,7 +211,7 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
             const std::uint64_t size = static_cast<std::uint64_t>(payload.bytes.size());
             result.bytes += size;
             ++result.resources;
-            packed.push_back({relative.generic_string(), destination, size});
+            if (buildPackages) packed.push_back({relative.generic_string(), destination, size});
 
             manifest << "    {\"id\": \"" << jsonEscape(resource.id)
                      << "\", \"name\": \"" << jsonEscape(resource.displayName)
@@ -216,18 +231,20 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
             const std::string text = manifest.str();
             out.write(text.data(), static_cast<std::streamsize>(text.size()));
         }
-        packed.push_back({"manifest.json", manifestPath, static_cast<std::uint64_t>(std::filesystem::file_size(manifestPath))});
 
-        result.packageFile = packageRoot / (romName + ".sdpack");
-        writePackage(result.packageFile, packed);
+        if (buildPackages) {
+            packed.push_back({"manifest.json", manifestPath, static_cast<std::uint64_t>(std::filesystem::file_size(manifestPath))});
+            result.packageFile = packageRoot / (romName + ".sdpack");
+            writePackage(result.packageFile, packed);
 
-        if (!selfExtractorStub.empty() && std::filesystem::is_regular_file(selfExtractorStub)) {
+            if (!selfExtractorStub.empty() && std::filesystem::is_regular_file(selfExtractorStub)) {
 #ifdef _WIN32
-            result.selfExtractingFile = packageRoot / (romName + ".resources.exe");
+                result.selfExtractingFile = packageRoot / (romName + ".resources.exe");
 #else
-            result.selfExtractingFile = packageRoot / (romName + ".resources");
+                result.selfExtractingFile = packageRoot / (romName + ".resources");
 #endif
-            buildSelfExtractor(selfExtractorStub, result.packageFile, result.selfExtractingFile);
+                buildSelfExtractor(selfExtractorStub, result.packageFile, result.selfExtractingFile);
+            }
         }
         results.push_back(std::move(result));
     }
