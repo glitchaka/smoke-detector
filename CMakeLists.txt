@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(smoke_rom
     src/rom/Lzh8.cpp
+    src/rom/Lz11.cpp
     src/rom/RomInspector.cpp
     src/rom/RomLibrary.cpp
     src/rom/RomModelArchive.cpp
