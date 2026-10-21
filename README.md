@@ -16,24 +16,28 @@ La biblioteca detecta GB, GBC, GBA, NDS, CIA, 3DS, CCI y CXI. Puedes tener varia
 
 La lectura de recursos está separada del visor 3D:
 
-- **Nintendo 3DS:** indexa y exporta todos los archivos de un RomFS legible. Si el contenido está cifrado o no se puede abrir, conserva acceso a la imagen ROM como recurso bruto.
-- **Nintendo DS:** lee el encabezado, ARM9, ARM7 y el árbol NitroFS mediante FNT/FAT.
+- **Nintendo 3DS:** conserva la imagen ROM completa, indexa todo el RomFS legible y expande recursivamente contenedores DARC reconocibles. Los contenedores comprimidos LZH8 (`0x40`) y LZ11 (`0x11`) se descomprimen para poder inspeccionar su contenido, pero el archivo original del RomFS también se conserva.
+- **Nintendo DS:** conserva la imagen ROM completa, lee el encabezado, ARM9, ARM7 y el árbol NitroFS mediante FNT/FAT.
 - **GB / GBC:** exporta la imagen y el encabezado, separa la ROM en bancos de 16 KiB y genera vistas TGA 2bpp de cada banco para localizar gráficos sin afirmar que cada bloque sea un asset semántico.
 - **GBA:** exporta la imagen y el encabezado, localiza y descomprime streams BIOS LZ77 (`0x10`) y contenedores `AT4PX`, genera vistas TGA 4bpp y vistas BGR555 para bloques compatibles, y crea un índice de cadenas ASCII con su offset dentro de la ROM.
 
-Los recursos derivados conservan su offset de origen en el nombre (`decoded/.../XXXXXXXX.bin`) para poder volver siempre al lugar exacto dentro de la ROM. Las vistas gráficas son interpretaciones de inspección; el binario descomprimido original también se conserva.
+Los recursos derivados conservan su offset u origen para poder volver siempre al lugar exacto dentro de la ROM. Las vistas gráficas son interpretaciones de inspección; los bytes originales se conservan.
 
-## Visor 3D
+## Interfaz Windows
 
-Las ROMs 3DS con RomFS legible y recursos BCH pueden aportar modelos 3D.
+`smoke_detector.exe` usa una interfaz Win32 propia en tema oscuro, con visor 3D, selector de modelos, estado de operación y progreso del dump.
 
-- `Modelos...`: busca y cambia el modelo 3D sin reiniciar.
-- `ROMs...`: muestra las ROMs detectadas y qué proveedor puede leerlas.
-- `Idle`: vuelve a la animación idle.
-- `Accion 1` / `Accion 2`: reproduce clips no-loop disponibles.
+Controles principales:
+
+- `Modelos`: busca y cambia el modelo 3D sin reiniciar.
+- `ROMs`: muestra las ROMs detectadas, proveedor y cantidad de recursos indexados.
+- `Exportar modelo`: exporta el modelo BCH seleccionado con animaciones y texturas.
+- `DUMP COMPLETO`: recorre todas las ROMs de `roms/` y escribe el dump completo en `exports/resources/`, mostrando recurso actual y progreso.
+- `Idle`, `Accion 1`, `Accion 2`: reproducen animaciones disponibles.
 - arrastrar con el botón izquierdo: rota el modelo.
 - rueda: zoom.
-- `Exportar`: crea un paquete del modelo seleccionado.
+
+El dump iniciado desde la GUI es **directory-only** para no duplicar innecesariamente una ROM grande dentro de `.sdpack` y de un autoextraíble. La utilidad de consola puede seguir generando esos paquetes portables.
 
 ## Exportación de modelos
 
@@ -55,47 +59,60 @@ audio/*                  audio o bancos de audio relacionados
 manifest.json             origen, recursos y clips detectados
 ```
 
-## Exportación completa de recursos
+## Dump completo de recursos
 
-`resource_export` recorre todas las ROMs de `roms/` y genera tres representaciones:
+La salida de cada ROM queda en:
 
 ```text
-exports/resources/<ROM>/         directorio directamente utilizable
-exports/resources/<ROM>.sdpack  paquete portable smoke-detector
-exports/resources/<ROM>.resources.exe   autoextraíble en Windows
+exports/resources/<ROM>/
+├─ manifest.json
+└─ files/
+   ├─ raw/                 # imagen ROM completa
+   ├─ system/              # cabeceras / ejecutables cuando el formato los expone
+   ├─ romfs/               # Nintendo 3DS
+   ├─ nitrofs/             # Nintendo DS
+   └─ ...
 ```
 
-Uso:
+Cuando un archivo del RomFS contiene un DARC reconocido, sus archivos internos se conservan con una jerarquía legible:
+
+```text
+romfs/ui.arc.cx
+romfs/ui.arc.cx.contents/menu/button.bclim
+romfs/ui.arc.cx.contents/font/main.bcfnt
+```
+
+Si aparece un contenedor propietario que Smoke Detector todavía no sabe abrir, su archivo original sigue presente en el dump y además la imagen ROM completa queda en `raw/`; por tanto no se descartan bytes aunque aún no exista un decodificador semántico para ese formato.
+
+## Exportación portable por consola
+
+`resource_export` recorre todas las ROMs de `roms/` y además del directorio genera un `.sdpack` y, en Windows, un autoextraíble si encuentra `smoke_sfx_stub.exe`.
+
+```text
+exports/resources/<ROM>/
+exports/resources/<ROM>.sdpack
+exports/resources/<ROM>.resources.exe
+```
+
+Uso normal desde la raíz:
+
+```powershell
+.\build\Release\resource_export.exe
+```
+
+También acepta rutas explícitas:
 
 ```powershell
 .\build\Release\resource_export.exe .\roms .\exports
 ```
 
-Cada directorio contiene `manifest.json` y `files/` conservando la jerarquía del recurso original. El manifiesto indica ROM, formato, proveedor, id original, nombre descriptivo, ruta exportada, tipo y tamaño.
-
-En cartuchos GB/GBC/GBA pueden aparecer, según el contenido detectado:
-
-```text
-raw/                         imagen original
-system/                      cabecera del cartucho
-banks/                       bancos GB/GBC de 16 KiB
-decoded/gba_lz77/            bloques GBA LZ77 descomprimidos
-decoded/at4px/               bloques AT4PX descomprimidos
-views/2bpp/                  interpretación gráfica GB/GBC
-views/gba_lz77/              vistas gráficas/paleta de bloques GBA
-views/at4px/                 vistas gráficas/paleta AT4PX
-analysis/ascii_strings.tsv   cadenas imprimibles y offsets
-```
-
-El formato `.sdpack` es deliberadamente simple y autocontenido. Puede extraerse con:
+El formato `.sdpack` puede extraerse con:
 
 ```powershell
 .\build\Release\resource_unpack.exe .\exports\resources\mi_rom.sdpack
 ```
 
-En Windows, si `smoke_sfx_stub.exe` está junto a `resource_export.exe`, se genera además un `.resources.exe`. Ese archivo lleva el paquete adjunto y se extrae a sí mismo al ejecutarlo; no necesita la ROM original ni smoke-detector para entregar los recursos.
-
-> Una ROM no equivale a un sistema de archivos universal. 3DS y NDS permiten enumerar archivos; GB/GBC/GBA mezclan código y datos en el espacio del cartucho. `smoke-detector` conserva los bytes originales y solo etiqueta como recurso decodificado aquello que puede reconocer de forma verificable; las vistas de tiles/paletas quedan marcadas como interpretaciones para inspección.
+> Una ROM no equivale a un sistema de archivos universal. 3DS y NDS permiten enumerar archivos; GB/GBC/GBA mezclan código y datos en el espacio del cartucho. `smoke-detector` conserva los bytes originales y solo etiqueta como recurso decodificado aquello que puede reconocer de forma verificable.
 
 ## Windows
 
