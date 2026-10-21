@@ -18,7 +18,10 @@ La lectura de recursos está separada del visor 3D:
 
 - **Nintendo 3DS:** indexa y exporta todos los archivos de un RomFS legible. Si el contenido está cifrado o no se puede abrir, conserva acceso a la imagen ROM como recurso bruto.
 - **Nintendo DS:** lee el encabezado, ARM9, ARM7 y el árbol NitroFS mediante FNT/FAT.
-- **GB / GBC / GBA:** conserva la imagen completa y el encabezado de cartucho como base sin inventar un sistema de archivos que esas plataformas no tienen. Los decodificadores específicos de juego se pueden montar sobre esta capa.
+- **GB / GBC:** exporta la imagen y el encabezado, separa la ROM en bancos de 16 KiB y genera vistas TGA 2bpp de cada banco para localizar gráficos sin afirmar que cada bloque sea un asset semántico.
+- **GBA:** exporta la imagen y el encabezado, localiza y descomprime streams BIOS LZ77 (`0x10`) y contenedores `AT4PX`, genera vistas TGA 4bpp y vistas BGR555 para bloques compatibles, y crea un índice de cadenas ASCII con su offset dentro de la ROM.
+
+Los recursos derivados conservan su offset de origen en el nombre (`decoded/.../XXXXXXXX.bin`) para poder volver siempre al lugar exacto dentro de la ROM. Las vistas gráficas son interpretaciones de inspección; el binario descomprimido original también se conserva.
 
 ## Visor 3D
 
@@ -68,7 +71,21 @@ Uso:
 .\build\Release\resource_export.exe .\roms .\exports
 ```
 
-Cada directorio contiene `manifest.json` y `files/` conservando la jerarquía del recurso original. El manifiesto indica ROM, formato, proveedor, id original, ruta exportada, tipo y tamaño.
+Cada directorio contiene `manifest.json` y `files/` conservando la jerarquía del recurso original. El manifiesto indica ROM, formato, proveedor, id original, nombre descriptivo, ruta exportada, tipo y tamaño.
+
+En cartuchos GB/GBC/GBA pueden aparecer, según el contenido detectado:
+
+```text
+raw/                         imagen original
+system/                      cabecera del cartucho
+banks/                       bancos GB/GBC de 16 KiB
+decoded/gba_lz77/            bloques GBA LZ77 descomprimidos
+decoded/at4px/               bloques AT4PX descomprimidos
+views/2bpp/                  interpretación gráfica GB/GBC
+views/gba_lz77/              vistas gráficas/paleta de bloques GBA
+views/at4px/                 vistas gráficas/paleta AT4PX
+analysis/ascii_strings.tsv   cadenas imprimibles y offsets
+```
 
 El formato `.sdpack` es deliberadamente simple y autocontenido. Puede extraerse con:
 
@@ -78,7 +95,7 @@ El formato `.sdpack` es deliberadamente simple y autocontenido. Puede extraerse 
 
 En Windows, si `smoke_sfx_stub.exe` está junto a `resource_export.exe`, se genera además un `.resources.exe`. Ese archivo lleva el paquete adjunto y se extrae a sí mismo al ejecutarlo; no necesita la ROM original ni smoke-detector para entregar los recursos.
 
-> Una ROM no equivale a un sistema de archivos universal. 3DS y NDS permiten enumerar archivos; GB/GBC/GBA requieren decodificadores específicos por juego para convertir gráficos, mapas, audio y tablas internas a formatos de alto nivel. La arquitectura nueva deja esos decodificadores como proveedores enchufables en lugar de etiquetar bytes arbitrarios como assets.
+> Una ROM no equivale a un sistema de archivos universal. 3DS y NDS permiten enumerar archivos; GB/GBC/GBA mezclan código y datos en el espacio del cartucho. `smoke-detector` conserva los bytes originales y solo etiqueta como recurso decodificado aquello que puede reconocer de forma verificable; las vistas de tiles/paletas quedan marcadas como interpretaciones para inspección.
 
 ## Windows
 
