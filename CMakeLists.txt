@@ -13,6 +13,7 @@ add_library(smoke_rom
     src/rom/RomModelArchive.cpp
     src/rom/CiaBchModelSource.cpp
     src/rom/RumbleWorldArchive.cpp
+    src/rom/ThreeDsCrypto.cpp
 )
 
 target_include_directories(smoke_rom PUBLIC
@@ -66,7 +67,7 @@ target_compile_definitions(smoke_sfx_stub PRIVATE SMOKE_SFX_STUB=1)
 
 if(WIN32)
     add_executable(smoke_detector WIN32
-        src/demo/SmokeDetectorWin32Universal.cpp
+        src/demo/SmokeDetectorWin32Studio.cpp
     )
     target_compile_definitions(smoke_detector PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     if(MSVC)
