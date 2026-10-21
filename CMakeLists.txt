@@ -113,6 +113,10 @@ if(WIN32)
         "fix.transformType = fix.transformType >= 2 ? -1 : fix.transformType + 1;"
         SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
     string(REPLACE
+        "const int visible = std::max(1, (l.right.bottom - top - 12) / rowHeight);"
+        "const int visible = std::max<int>(1, static_cast<int>((l.right.bottom - top - 12) / rowHeight));"
+        SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
+    string(REPLACE
         "int WINAPI WinMain("
         "int WINAPI SmokeDetectorStudio3LegacyWinMain("
         SMOKE_STUDIO_SOURCE "${SMOKE_STUDIO_SOURCE}")
@@ -138,6 +142,10 @@ if(WIN32)
         ""
         SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
 
+    string(REPLACE
+        "const int visible=std::max(1,(l.right.bottom-y-8)/EDIT_ROW_H);"
+        "const int visible=std::max<int>(1,static_cast<int>((l.right.bottom-y-8)/EDIT_ROW_H));"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
     string(REPLACE
         "void editorClick(HWND hwnd,int x,int y){"
         "#include \"SmokeDetectorWin32EditorExport.inc\"\n\nvoid editorClick(HWND hwnd,int x,int y){"
