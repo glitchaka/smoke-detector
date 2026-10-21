@@ -98,6 +98,7 @@ public:
     const std::vector<Mesh>& meshes() const { return meshes_; }
     const std::vector<Texture>& textures() const { return textures_; }
     const std::vector<Material>& materials() const { return materials_; }
+    std::vector<Material>& materialsMutable() { return materials_; }
     const std::vector<Animation>& animations() const { return animations_; }
     const Animation* findAnimation(const std::string& name) const;
     const Texture* findTexture(const std::string& name) const;
