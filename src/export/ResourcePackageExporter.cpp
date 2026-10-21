@@ -27,9 +27,6 @@ std::string safeComponent(std::string value) {
 }
 
 std::filesystem::path safeRelative(const std::string& resourceId) {
-    // Nested archive entries use "container::child" internally. Convert that
-    // into a real, human-readable folder tree in the dump instead of flattening
-    // it into an opaque filename.
     std::string expanded;
     expanded.reserve(resourceId.size() + 32);
     for (std::size_t i = 0; i < resourceId.size();) {
@@ -61,6 +58,13 @@ void writeBytes(const std::filesystem::path& path, const std::vector<std::uint8_
     std::ofstream out(path, std::ios::binary);
     if (!out) throw std::runtime_error("Could not create export file: " + path.string());
     if (!bytes.empty()) out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+void copyFile(const std::filesystem::path& source, const std::filesystem::path& destination) {
+    std::filesystem::create_directories(destination.parent_path());
+    std::error_code ec;
+    std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) throw std::runtime_error("Could not copy ROM image: " + ec.message());
 }
 
 std::string jsonEscape(const std::string& value) {
@@ -202,13 +206,20 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
             const auto& resource = resources[i];
             if (progress) progress(currentResource, totalResources, summary.label, resource.id);
 
-            const auto virtualPath = summary.label + " :: " + resource.id;
-            const auto payload = archive.extract(virtualPath);
             const auto relative = std::filesystem::path("files") / safeRelative(resource.id);
             const auto destination = result.directory / relative;
-            writeBytes(destination, payload.bytes);
+            std::uint64_t size = 0;
 
-            const std::uint64_t size = static_cast<std::uint64_t>(payload.bytes.size());
+            if (resource.kind == promptemon::rom::ResourceKind::RawRom) {
+                copyFile(summary.rom.path, destination);
+                size = static_cast<std::uint64_t>(std::filesystem::file_size(destination));
+            } else {
+                const auto virtualPath = summary.label + " :: " + resource.id;
+                const auto payload = archive.extract(virtualPath);
+                writeBytes(destination, payload.bytes);
+                size = static_cast<std::uint64_t>(payload.bytes.size());
+            }
+
             result.bytes += size;
             ++result.resources;
             if (buildPackages) packed.push_back({relative.generic_string(), destination, size});
