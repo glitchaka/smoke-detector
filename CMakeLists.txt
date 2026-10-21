@@ -169,6 +169,35 @@ if(WIN32)
         "const int visible=std::max(1,(l.right.bottom-y-8)/EDIT_ROW_H);"
         "const int visible=std::max<int>(1,static_cast<int>((l.right.bottom-y-8)/EDIT_ROW_H));"
         SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
+    # Mode tabs are resource browsers too. Do not disable them just because a
+    # 3D scene could not be parsed; Animal Crossing, for example, exposes many
+    # BCRES/texture/animation files even before a model decoder succeeds.
+    string(REPLACE
+        "eButton(dc, l.modeButtons[static_cast<std::size_t>(i)], labels[i], active, i == 0 || gScene != nullptr);"
+        "eButton(dc, l.modeButtons[static_cast<std::size_t>(i)], labels[i], active, !gDumping);"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
+    string(REPLACE
+        "    eBox(dc,l.right,E_PANEL);\n    switch(gEditorMode){"
+        "    eBox(dc,l.right,E_PANEL);\n    if(!gScene){paintBrowseInspector(dc,l);return;}\n    switch(gEditorMode){"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
+    string(REPLACE
+        "void paintEditor(HWND hwnd){"
+        "void paintResourceModeContent(HDC dc,const EditorLayout&l){\n    if(gScene)return;\n    RECT area=l.viewport;\n    eFill(dc,area,E_SURFACE);\n    RECT title{area.left+14,area.top+8,area.right-14,area.top+34};\n    std::string heading=std::string(editorModeName(gEditorMode))+\" resources\";\n    eText(dc,heading,title,gEditorSectionFont,E_TEXT);\n    if(gFiltered.empty()){\n        RECT empty{area.left+20,area.top+50,area.right-20,area.bottom-20};\n        eText(dc,\"No resources in this category\",empty,gEditorSmallFont,E_MUTED,DT_CENTER|DT_VCENTER|DT_SINGLELINE);\n        return;\n    }\n    const int rowH=34;\n    const int visible=std::max(1,(area.bottom-(area.top+42)-8)/rowH);\n    std::size_t selectedPos=0;\n    const auto it=std::find(gFiltered.begin(),gFiltered.end(),gSelectedItem);\n    if(it!=gFiltered.end())selectedPos=static_cast<std::size_t>(std::distance(gFiltered.begin(),it));\n    std::size_t start=selectedPos>static_cast<std::size_t>(visible/2)?selectedPos-static_cast<std::size_t>(visible/2):0;\n    const std::size_t maxStart=gFiltered.size()>static_cast<std::size_t>(visible)?gFiltered.size()-static_cast<std::size_t>(visible):0;\n    start=std::min(start,maxStart);\n    int y=area.top+42;\n    for(int i=0;i<visible;++i){\n        const std::size_t pos=start+static_cast<std::size_t>(i);\n        if(pos>=gFiltered.size())break;\n        const std::size_t idx=gFiltered[pos];\n        const auto&item=gItems[idx];\n        RECT row{area.left+10,y,area.right-10,y+rowH-2};\n        if(idx==gSelectedItem)eFill(dc,row,E_ACTIVE);\n        RECT badge{row.left+6,row.top,row.left+42,row.bottom};\n        eText(dc,badgeFor(item.category),badge,gEditorTinyFont,idx==gSelectedItem?E_TEXT:E_MUTED,DT_CENTER|DT_VCENTER|DT_SINGLELINE);\n        RECT name{badge.right+4,row.top,row.right-145,row.bottom};\n        eText(dc,item.displayName.empty()?item.id:item.displayName,name,gEditorSmallFont,E_TEXT);\n        RECT type{row.right-140,row.top,row.right-68,row.bottom};\n        eText(dc,filterName(item.category),type,gEditorTinyFont,E_MUTED,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);\n        RECT size{row.right-64,row.top,row.right-6,row.bottom};\n        eText(dc,item.size?humanBytes(item.size):\"\",size,gEditorTinyFont,E_MUTED,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);\n        eLine(dc,row.left,row.bottom,row.right,row.bottom,RGB(48,48,48));\n        y+=rowH;\n    }\n}\n\nvoid paintEditor(HWND hwnd){"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
+    string(REPLACE
+        "eFill(dc,client,E_BG);const auto l=editorLayout(hwnd);paintEditorTop(dc,l);paintEditorLeft(dc,l);paintCenterHeader(dc,l);if(gEditorMode==EditorMode::Texture)paintUvCanvas(dc,l);if(gEditorMode==EditorMode::Animate)paintTimeline(dc,l);paintEditorRight(dc,l);paintEditorStatus(dc,l);"
+        "eFill(dc,client,E_BG);const auto l=editorLayout(hwnd);paintEditorTop(dc,l);paintEditorLeft(dc,l);paintCenterHeader(dc,l);if(!gScene)paintResourceModeContent(dc,l);else{if(gEditorMode==EditorMode::Texture)paintUvCanvas(dc,l);if(gEditorMode==EditorMode::Animate)paintTimeline(dc,l);}paintEditorRight(dc,l);paintEditorStatus(dc,l);"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
+    string(REPLACE
+        "for(int i=0;i<5;++i){if(eHit(l.modeButtons[static_cast<std::size_t>(i)],x,y)){if(i==0||gScene){gEditorMode=static_cast<EditorMode>(i);editorLayoutControls(hwnd);InvalidateRect(hwnd,nullptr,FALSE);}return;}}"
+        "for(int i=0;i<5;++i){if(eHit(l.modeButtons[static_cast<std::size_t>(i)],x,y)){gEditorMode=static_cast<EditorMode>(i);gCategory=i==0?0:(i==3?3:(i==4?2:1));gTreeScroll=0;applyFilter();if(gSelectedItem<gItems.size()){if(i==1||i==2)activateEditorItem(gSelectedItem);else{gPreview3D=false;if(gRenderWindow)ShowWindow(gRenderWindow,SW_HIDE);setStatus(gItems[gSelectedItem].id);}}editorLayoutControls(hwnd);InvalidateRect(hwnd,nullptr,FALSE);return;}}"
+        SMOKE_EDITOR_SOURCE "${SMOKE_EDITOR_SOURCE}")
+
     string(REPLACE
         "void editorClick(HWND hwnd,int x,int y){"
         "#include \"SmokeDetectorWin32EditorExport.inc\"\n\nvoid editorClick(HWND hwnd,int x,int y){"
