@@ -1,9 +1,83 @@
 enum class ViewportEditTool { Move, Rotate, Scale };
 
+constexpr int ID_VIEWPORT_EDIT_TOGGLE = 14001;
+
 ViewportEditTool gViewportEditTool = ViewportEditTool::Move;
+bool gViewportEditEnabled = false;
 bool gViewportEditing = false;
 bool gViewportOrbiting = false;
 POINT gViewportLastMouse{};
+HWND gViewportEditButton = nullptr;
+EditorMode gViewportModeSnapshot = EditorMode::Browse;
+std::string gViewportModelSnapshot;
+
+bool viewportModeEditable() {
+    return gScene && (gEditorMode == EditorMode::Model ||
+                      gEditorMode == EditorMode::Rig ||
+                      gEditorMode == EditorMode::Animate);
+}
+
+const char* viewportEditModeLabel() {
+    return gViewportEditEnabled ? "Edit: ON" : "Edit: OFF";
+}
+
+void viewportRefreshEditButton() {
+    if (!gViewportEditButton) return;
+    SetWindowTextA(gViewportEditButton, viewportEditModeLabel());
+    EnableWindow(gViewportEditButton, viewportModeEditable() ? TRUE : FALSE);
+    InvalidateRect(gViewportEditButton, nullptr, TRUE);
+}
+
+void viewportDisableEdit() {
+    gViewportEditEnabled = false;
+    gViewportEditing = false;
+    if (GetCapture() == gRenderWindow) ReleaseCapture();
+    viewportRefreshEditButton();
+}
+
+void viewportSyncEditContext() {
+    const bool changedMode = gViewportModeSnapshot != gEditorMode;
+    const bool changedModel = gViewportModelSnapshot != gSelectedModel;
+    if (changedMode || changedModel || !viewportModeEditable()) {
+        gViewportModeSnapshot = gEditorMode;
+        gViewportModelSnapshot = gSelectedModel;
+        viewportDisableEdit();
+    } else {
+        viewportRefreshEditButton();
+    }
+}
+
+void viewportToggleEdit() {
+    viewportSyncEditContext();
+    if (!viewportModeEditable()) {
+        setStatus("Edit mode is available in Model, Rig and Animate");
+        return;
+    }
+    gViewportEditEnabled = !gViewportEditEnabled;
+    if (!gViewportEditEnabled) {
+        gViewportEditing = false;
+        if (GetCapture() == gRenderWindow) ReleaseCapture();
+        setStatus("Edit mode: OFF | left drag rotates camera | wheel zooms");
+    } else {
+        setStatus("Edit mode: ON | W move | E rotate | R scale | Ctrl = Z axis | right drag orbits");
+    }
+    viewportRefreshEditButton();
+    if (gWindow) InvalidateRect(gWindow, nullptr, FALSE);
+}
+
+void viewportDrawEditButton(const DRAWITEMSTRUCT& item) {
+    const bool enabled = viewportModeEditable();
+    const COLORREF fill = !enabled ? E_PANEL : (gViewportEditEnabled ? E_ACTIVE : E_FIELD);
+    const COLORREF border = gViewportEditEnabled ? E_BORDER_ACTIVE : E_BORDER;
+    eBox(item.hDC, item.rcItem, fill, border);
+    if (gViewportEditEnabled && enabled) {
+        RECT mark{item.rcItem.left, item.rcItem.top, item.rcItem.left + 3, item.rcItem.bottom};
+        eFill(item.hDC, mark, RGB(220, 220, 220));
+    }
+    eText(item.hDC, viewportEditModeLabel(), item.rcItem, gEditorSmallFont,
+          enabled ? E_TEXT : E_DIM,
+          DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+}
 
 bool viewportProjectPoint(promptemon::bch::Vec3 point, POINT& screen) {
     if (!gGL || !gRenderWindow) return false;
@@ -174,14 +248,49 @@ void viewportApplyDelta(int dx, int dy) {
 
 void viewportSetTool(ViewportEditTool tool) {
     gViewportEditTool = tool;
-    setStatus(std::string("Tool: ") + viewportToolLabel() + " | left drag edits | Ctrl = Z axis | right drag orbits | wheel zooms");
+    if (gViewportEditEnabled) {
+        setStatus(std::string("Edit mode: ON | Tool: ") + viewportToolLabel() +
+                  " | Ctrl = Z axis | right drag orbits | wheel zooms");
+    }
 }
 
 LRESULT CALLBACK EditorRenderProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+        case WM_CREATE:
+            gViewportEditButton = CreateWindowA("BUTTON", "Edit: OFF",
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                10, 10, 96, 28, hwnd,
+                controlId(ID_VIEWPORT_EDIT_TOGGLE), GetModuleHandleA(nullptr), nullptr);
+            if (gViewportEditButton) {
+                SendMessage(gViewportEditButton, WM_SETFONT,
+                            reinterpret_cast<WPARAM>(gEditorSmallFont), TRUE);
+            }
+            SetTimer(hwnd, 1, 120, nullptr);
+            viewportSyncEditContext();
+            return 0;
+        case WM_SIZE:
+            if (gViewportEditButton) MoveWindow(gViewportEditButton, 10, 10, 96, 28, TRUE);
+            viewportSyncEditContext();
+            return 0;
+        case WM_TIMER:
+            if (wp == 1) viewportSyncEditContext();
+            return 0;
+        case WM_COMMAND:
+            if (LOWORD(wp) == ID_VIEWPORT_EDIT_TOGGLE) {
+                viewportToggleEdit();
+                return 0;
+            }
+            break;
+        case WM_DRAWITEM:
+            if (lp && static_cast<int>(wp) == ID_VIEWPORT_EDIT_TOGGLE) {
+                viewportDrawEditButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lp));
+                return TRUE;
+            }
+            break;
         case WM_LBUTTONDOWN: {
             SetFocus(hwnd);
-            if (gScene && (gEditorMode == EditorMode::Model || gEditorMode == EditorMode::Rig || gEditorMode == EditorMode::Animate)) {
+            viewportSyncEditContext();
+            if (gViewportEditEnabled && viewportModeEditable()) {
                 const int x = GET_X_LPARAM(lp);
                 const int y = GET_Y_LPARAM(lp);
                 if (gEditorMode == EditorMode::Model) {
@@ -235,23 +344,43 @@ LRESULT CALLBACK EditorRenderProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 gViewportLastMouse = point;
                 return 0;
             }
-            return 0;
+            return RenderProc(hwnd, msg, wp, lp);
         }
         case WM_KEYDOWN:
-            if (wp == 'W') { viewportSetTool(ViewportEditTool::Move); return 0; }
-            if (wp == 'E') { viewportSetTool(ViewportEditTool::Rotate); return 0; }
-            if (wp == 'R') { viewportSetTool(ViewportEditTool::Scale); return 0; }
-            if (wp == 'N' && gEditorMode == EditorMode::Animate) { authorCreateAnimation(); return 0; }
-            if (wp == VK_SPACE && gEditorMode == EditorMode::Animate) { gAnimationPaused = !gAnimationPaused; return 0; }
+            if (wp == VK_F2) { viewportToggleEdit(); return 0; }
+            if (wp == 'W' || wp == 'E' || wp == 'R') {
+                if (!gViewportEditEnabled) {
+                    setStatus("Edit mode: OFF | enable Edit before changing the model");
+                    return 0;
+                }
+                if (wp == 'W') viewportSetTool(ViewportEditTool::Move);
+                else if (wp == 'E') viewportSetTool(ViewportEditTool::Rotate);
+                else viewportSetTool(ViewportEditTool::Scale);
+                return 0;
+            }
+            if (wp == 'N' && gEditorMode == EditorMode::Animate) {
+                if (gViewportEditEnabled) authorCreateAnimation();
+                else setStatus("Edit mode: OFF | enable Edit before creating an animation");
+                return 0;
+            }
+            if (wp == VK_SPACE && gEditorMode == EditorMode::Animate) {
+                gAnimationPaused = !gAnimationPaused;
+                return 0;
+            }
             if ((wp == VK_LEFT || wp == VK_RIGHT) && gEditorMode == EditorMode::Animate && gCurrent) {
                 gAnimationPaused = true;
-                gFrame = std::clamp(gFrame + (wp == VK_LEFT ? -1.0f : 1.0f), 0.0f, std::max(1.0f, gCurrent->frames));
+                gFrame = std::clamp(gFrame + (wp == VK_LEFT ? -1.0f : 1.0f),
+                                    0.0f, std::max(1.0f, gCurrent->frames));
                 if (gWindow) InvalidateRect(gWindow, nullptr, FALSE);
                 return 0;
             }
             break;
         case WM_MOUSEWHEEL:
             return RenderProc(hwnd, msg, wp, lp);
+        case WM_DESTROY:
+            KillTimer(hwnd, 1);
+            gViewportEditButton = nullptr;
+            break;
         case WM_ERASEBKGND:
             return 1;
     }
