@@ -31,7 +31,8 @@ public:
         const promptemon::rom::RomResourceArchive& archive,
         const std::filesystem::path& exportRoot,
         const std::filesystem::path& selfExtractorStub = {},
-        ProgressCallback progress = {});
+        ProgressCallback progress = {},
+        bool buildPackages = true);
 };
 
 } // namespace smoke_detector::exporter
