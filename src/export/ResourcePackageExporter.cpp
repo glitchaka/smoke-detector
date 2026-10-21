@@ -69,6 +69,17 @@ std::string jsonEscape(const std::string& value) {
     return out.str();
 }
 
+const char* manifestKind(promptemon::rom::ResourceKind kind) noexcept {
+    using promptemon::rom::ResourceKind;
+    switch (kind) {
+        case ResourceKind::Data: return "data";
+        case ResourceKind::Text: return "text";
+        case ResourceKind::Graphics: return "graphics";
+        case ResourceKind::Palette: return "palette";
+        default: return promptemon::rom::resourceKindName(kind);
+    }
+}
+
 void writeU32(std::ostream& out, std::uint32_t value) {
     const char bytes[4] = {
         static_cast<char>(value & 0xFFu),
@@ -127,7 +138,9 @@ void buildSelfExtractor(const std::filesystem::path& stub, const std::filesystem
     if (!stubIn || !packageIn || !out) throw std::runtime_error("Could not build self-extracting package");
 
     copyStream(stubIn, out);
-    const auto packageOffset = static_cast<std::uint64_t>(out.tellp());
+    const std::streampos position = out.tellp();
+    if (position < std::streampos(0)) throw std::runtime_error("Could not determine self-extractor payload offset");
+    const auto packageOffset = static_cast<std::uint64_t>(static_cast<std::streamoff>(position));
     copyStream(packageIn, out);
     out.write(kSfxMagic, sizeof(kSfxMagic));
     writeU64(out, packageOffset);
@@ -179,8 +192,9 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
             packed.push_back({relative.generic_string(), destination, size});
 
             manifest << "    {\"id\": \"" << jsonEscape(resource.id)
+                     << "\", \"name\": \"" << jsonEscape(resource.displayName)
                      << "\", \"path\": \"" << jsonEscape(relative.generic_string())
-                     << "\", \"kind\": \"" << promptemon::rom::resourceKindName(resource.kind)
+                     << "\", \"kind\": \"" << manifestKind(resource.kind)
                      << "\", \"size\": " << size << "}";
             if (i + 1 != resources.size()) manifest << ',';
             manifest << '\n';
