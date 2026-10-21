@@ -18,6 +18,13 @@ std::string lower(std::string text) {
     return text;
 }
 
+std::string upper(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+        return static_cast<char>(std::toupper(c));
+    });
+    return text;
+}
+
 std::string trimField(const unsigned char* data, std::size_t length) {
     std::string out;
     out.reserve(length);
@@ -45,18 +52,32 @@ bool hasMagic(const std::vector<unsigned char>& data, std::size_t offset, const 
     return true;
 }
 
-std::string identifyPokemonGame(const std::string& code) {
-    static const std::unordered_map<std::string, std::string> known = {
-        {"BPRE", "Pokemon FireRed"}, {"BPGE", "Pokemon LeafGreen"},
-        {"BPEE", "Pokemon Emerald"}, {"AXVE", "Pokemon Ruby"}, {"AXPE", "Pokemon Sapphire"},
-        {"APAE", "Pokemon Pearl"}, {"ADAE", "Pokemon Diamond"}, {"CPUE", "Pokemon Platinum"},
-        {"IPKE", "Pokemon HeartGold"}, {"IPGE", "Pokemon SoulSilver"},
-        {"IRBO", "Pokemon Black"}, {"IRAO", "Pokemon White"}, {"IRBE", "Pokemon Black"},
-        {"IRAE", "Pokemon White"}, {"IREO", "Pokemon Black 2"}, {"IRDO", "Pokemon White 2"},
-        {"IREE", "Pokemon Black 2"}, {"IRDE", "Pokemon White 2"},
+std::string identifyPokemonGame(const std::string& code, const std::string& title) {
+    // Nintendo game codes use the final character for region/language. Match the
+    // stable three-character product prefix so EUR/ESP/JPN dumps are identified too.
+    static const std::unordered_map<std::string, std::string> knownPrefixes = {
+        {"BPR", "Pokemon FireRed"}, {"BPG", "Pokemon LeafGreen"},
+        {"BPE", "Pokemon Emerald"}, {"AXV", "Pokemon Ruby"}, {"AXP", "Pokemon Sapphire"},
+        {"APA", "Pokemon Pearl"}, {"ADA", "Pokemon Diamond"}, {"CPU", "Pokemon Platinum"},
+        {"IPK", "Pokemon HeartGold"}, {"IPG", "Pokemon SoulSilver"},
+        {"IRB", "Pokemon Black"}, {"IRA", "Pokemon White"},
+        {"IRE", "Pokemon Black 2"}, {"IRD", "Pokemon White 2"},
     };
-    const auto it = known.find(code);
-    return it == known.end() ? std::string{} : it->second;
+    if (code.size() >= 3) {
+        const auto it = knownPrefixes.find(upper(code.substr(0, 3)));
+        if (it != knownPrefixes.end()) return it->second;
+    }
+
+    // GB/GBC do not carry the four-character product code used by GBA/NDS.
+    // Recognize the common Pokemon titles from the cartridge title field instead.
+    const std::string t = upper(title);
+    if (t == "POKEMON RED") return "Pokemon Red";
+    if (t == "POKEMON BLUE") return "Pokemon Blue";
+    if (t == "POKEMON YELLOW" || t == "POKEMON YEL") return "Pokemon Yellow";
+    if (t == "POKEMON GOLD") return "Pokemon Gold";
+    if (t == "POKEMON SILVER") return "Pokemon Silver";
+    if (t == "PM_CRYSTAL" || t == "POKEMON CRYSTAL") return "Pokemon Crystal";
+    return {};
 }
 
 bool looksLikeGba(const std::vector<unsigned char>& header) {
@@ -74,6 +95,17 @@ bool looksLikeGb(const std::vector<unsigned char>& header) {
     if (header.size() < 0x150) return false;
     static const unsigned char logoStart[] = {0xCE, 0xED, 0x66, 0x66};
     return std::equal(std::begin(logoStart), std::end(logoStart), header.begin() + 0x104);
+}
+
+std::string gbTitle(const std::vector<unsigned char>& header) {
+    if (header.size() < 0x150) return {};
+    const unsigned char cgbFlag = header[0x143];
+    if (cgbFlag != 0x80 && cgbFlag != 0xC0) return trimField(header.data() + 0x134, 16);
+
+    // On later CGB cartridges 0x13F-0x142 is the manufacturer code, leaving
+    // 11 bytes for the title. Using the old 15-byte title span incorrectly
+    // produced strings such as MARIO DELUXAHYE on real retail dumps.
+    return trimField(header.data() + 0x134, 11);
 }
 
 } // namespace
@@ -125,10 +157,10 @@ RomInfo RomInspector::inspect(const std::filesystem::path& path) {
     } else if (looksLikeGb(header)) {
         const unsigned char cgbFlag = header[0x143];
         info.format = (cgbFlag == 0x80 || cgbFlag == 0xC0) ? RomFormat::GameBoyColor : RomFormat::GameBoy;
-        info.title = trimField(header.data() + 0x134, cgbFlag == 0x80 || cgbFlag == 0xC0 ? 15 : 16);
+        info.title = gbTitle(header);
     }
 
-    info.detectedGame = identifyPokemonGame(info.gameCode);
+    info.detectedGame = identifyPokemonGame(info.gameCode, info.title);
     if (info.detectedGame.empty() && info.title.empty()) info.title = path.stem().string();
     return info;
 }
