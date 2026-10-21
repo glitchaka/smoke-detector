@@ -19,10 +19,6 @@ enum class ResourceKind {
     Texture,
     Audio,
     Archive,
-    Data,
-    Text,
-    Graphics,
-    Palette,
 };
 
 struct RomResource {
