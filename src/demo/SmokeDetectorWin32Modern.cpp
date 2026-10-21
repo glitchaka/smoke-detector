@@ -4,7 +4,6 @@
 #include "rom/RomModelArchive.h"
 #include "rom/RomResourceArchive.h"
 
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
@@ -106,6 +105,10 @@ HWND gPickerSearch = nullptr;
 HWND gPickerList = nullptr;
 HWND gPickerCount = nullptr;
 std::vector<std::string> gFilteredModels;
+
+HMENU controlId(int id) {
+    return reinterpret_cast<HMENU>(static_cast<INT_PTR>(id));
+}
 
 std::string lower(std::string text) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
@@ -214,7 +217,7 @@ HWND createCommandButton(HWND parent, int id, const char* text, int x, int width
     HWND button = CreateWindowA("BUTTON", text,
                                 WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
                                 x, 57, width, 34,
-                                parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                                parent, controlId(id),
                                 GetModuleHandleA(nullptr), nullptr);
     if (button) SendMessage(button, WM_SETFONT, reinterpret_cast<WPARAM>(gFontBody), TRUE);
     return button;
@@ -231,7 +234,8 @@ void paintChrome(HWND hwnd) {
     RECT header{0, 0, rc.right, HEADER_HEIGHT};
     FillRect(dc, &header, gBrushPanel);
 
-    RECT footer{0, std::max(0L, rc.bottom - FOOTER_HEIGHT), rc.right, rc.bottom};
+    const LONG footerTop = std::max<LONG>(0, rc.bottom - static_cast<LONG>(FOOTER_HEIGHT));
+    RECT footer{0, footerTop, rc.right, rc.bottom};
     FillRect(dc, &footer, gBrushPanel);
 
     SetBkMode(dc, TRANSPARENT);
@@ -253,9 +257,9 @@ void paintChrome(HWND hwnd) {
 
     if (gProgressTotal > 0) {
         const int barLeft = MARGIN;
-        const int barRight = std::max(barLeft + 1, rc.right - MARGIN);
-        const int barTop = rc.bottom - 8;
-        const int barBottom = rc.bottom - 4;
+        const int barRight = std::max(barLeft + 1, static_cast<int>(rc.right) - MARGIN);
+        const int barTop = static_cast<int>(rc.bottom) - 8;
+        const int barBottom = static_cast<int>(rc.bottom) - 4;
         RECT track{barLeft, barTop, barRight, barBottom};
         HBRUSH trackBrush = CreateSolidBrush(RGB(47, 53, 63));
         FillRect(dc, &track, trackBrush);
@@ -390,7 +394,7 @@ void drawScene() {
     if (!gRenderWindow || !gGL) return;
     RECT rc{};
     GetClientRect(gRenderWindow, &rc);
-    setupProjection(rc.right - rc.left, rc.bottom - rc.top);
+    setupProjection(static_cast<int>(rc.right - rc.left), static_cast<int>(rc.bottom - rc.top));
 
     glClearColor(0.075f, 0.085f, 0.105f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -518,15 +522,15 @@ LRESULT CALLBACK PickerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             auto label = CreateWindowA("STATIC", "Buscar modelo", WS_CHILD | WS_VISIBLE,
                                        16, 16, 110, 22, hwnd, nullptr, nullptr, nullptr);
             gPickerSearch = CreateWindowExA(0, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                                            16, 42, 500, 32, hwnd, reinterpret_cast<HMENU>(ID_PICKER_SEARCH), nullptr, nullptr);
+                                            16, 42, 500, 32, hwnd, controlId(ID_PICKER_SEARCH), nullptr, nullptr);
             gPickerCount = CreateWindowA("STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT,
-                                         528, 48, 130, 22, hwnd, reinterpret_cast<HMENU>(ID_PICKER_COUNT), nullptr, nullptr);
+                                         528, 48, 130, 22, hwnd, controlId(ID_PICKER_COUNT), nullptr, nullptr);
             gPickerList = CreateWindowExA(0, "LISTBOX", "", WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
-                                          16, 88, 642, 390, hwnd, reinterpret_cast<HMENU>(ID_PICKER_LIST), nullptr, nullptr);
+                                          16, 88, 642, 390, hwnd, controlId(ID_PICKER_LIST), nullptr, nullptr);
             auto load = CreateWindowA("BUTTON", "Cargar modelo", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                                      438, 492, 110, 34, hwnd, reinterpret_cast<HMENU>(ID_PICKER_LOAD), nullptr, nullptr);
+                                      438, 492, 110, 34, hwnd, controlId(ID_PICKER_LOAD), nullptr, nullptr);
             auto cancel = CreateWindowA("BUTTON", "Cancelar", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                                        556, 492, 102, 34, hwnd, reinterpret_cast<HMENU>(ID_PICKER_CANCEL), nullptr, nullptr);
+                                        556, 492, 102, 34, hwnd, controlId(ID_PICKER_CANCEL), nullptr, nullptr);
             for (HWND control : {label, gPickerSearch, gPickerCount, gPickerList, load, cancel}) {
                 if (control) SendMessage(control, WM_SETFONT, reinterpret_cast<WPARAM>(gFontBody), TRUE);
             }
