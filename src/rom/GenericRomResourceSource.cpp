@@ -73,7 +73,8 @@ ResourceKind classifyPath(std::string path) {
         ends(".wav") || ends(".ogg") || ends(".dsp")) return ResourceKind::Audio;
     if (ends(".png") || ends(".tga") || ends(".bmp") || ends(".jpg") || ends(".jpeg") ||
         ends(".bclim") || ends(".ctpk")) return ResourceKind::Texture;
-    if (ends(".garc") || ends(".narc") || ends(".arc") || ends(".szs")) return ResourceKind::Archive;
+    if (ends(".garc") || ends(".narc") || ends(".arc") || ends(".szs") ||
+        ends(".darc") || ends(".carc") || ends(".cx") || ends(".xc")) return ResourceKind::Archive;
     return ResourceKind::File;
 }
 
@@ -120,23 +121,38 @@ public:
     explicit ThreeDsRomFsResourceSource(RomInfo info) : info_(std::move(info)) {
         archive_ = std::make_unique<RumbleWorldArchive>();
         if (!archive_->open(info_.path)) throw std::runtime_error("No readable 3DS RomFS");
-        for (const auto& path : archive_->resources()) {
+
+        const std::uint64_t size = static_cast<std::uint64_t>(info_.size);
+        resources_.push_back({"raw/rom" + extensionOrBin(info_.path), "Complete Nintendo 3DS image", ResourceKind::RawRom, size});
+        if (size >= 0x200) resources_.push_back({"system/header.bin", "Nintendo 3DS container header", ResourceKind::System, 0x200});
+
+        for (const auto& path : archive_->resourcePaths()) {
             resources_.push_back({"romfs/" + path, path, classifyPath(path), 0});
         }
-        if (resources_.empty()) throw std::runtime_error("3DS RomFS is empty");
+        if (archive_->resourcePaths().empty()) throw std::runtime_error("3DS RomFS is empty");
     }
 
     const RomInfo& romInfo() const noexcept override { return info_; }
-    std::string providerName() const override { return "Nintendo 3DS RomFS"; }
+    std::string providerName() const override { return "Nintendo 3DS full image + RomFS"; }
     std::vector<RomResource> resources() const override { return resources_; }
 
     bool has(const std::string& resourceId) const override {
+        if (resourceId.rfind("raw/rom", 0) == 0) return true;
+        if (resourceId == "system/header.bin") return info_.size >= 0x200;
         return resourceId.rfind("romfs/", 0) == 0 && archive_ && archive_->has(resourceId.substr(6));
     }
 
     std::vector<std::uint8_t> extract(const std::string& resourceId) const override {
-        if (!has(resourceId)) throw std::runtime_error("RomFS resource not found: " + resourceId);
-        return archive_->extract(resourceId.substr(6));
+        if (resourceId.rfind("raw/rom", 0) == 0) {
+            return readRange(info_.path, 0, static_cast<std::uint64_t>(info_.size));
+        }
+        if (resourceId == "system/header.bin") {
+            return readRange(info_.path, 0, std::min<std::uint64_t>(0x200, static_cast<std::uint64_t>(info_.size)));
+        }
+        if (resourceId.rfind("romfs/", 0) == 0 && archive_ && archive_->has(resourceId.substr(6))) {
+            return archive_->extract(resourceId.substr(6));
+        }
+        throw std::runtime_error("3DS resource not found: " + resourceId);
     }
 
 private:
@@ -151,6 +167,7 @@ public:
         const auto header = readRange(info_.path, 0, std::min<std::uint64_t>(0x200, static_cast<std::uint64_t>(info_.size)));
         if (header.size() < 0x50) throw std::runtime_error("Nintendo DS header is truncated");
 
+        addRange("raw/rom" + extensionOrBin(info_.path), "Complete Nintendo DS image", ResourceKind::RawRom, 0, info_.size);
         addRange("system/header.bin", "Nintendo DS header", ResourceKind::System, 0, header.size());
         const std::uint32_t arm9Offset = le32(header, 0x20);
         const std::uint32_t arm9Size = le32(header, 0x2C);
@@ -173,7 +190,7 @@ public:
     }
 
     const RomInfo& romInfo() const noexcept override { return info_; }
-    std::string providerName() const override { return "Nintendo DS NitroFS"; }
+    std::string providerName() const override { return "Nintendo DS full image + NitroFS"; }
     std::vector<RomResource> resources() const override { return resources_; }
 
     bool has(const std::string& resourceId) const override { return ranges_.find(resourceId) != ranges_.end(); }
