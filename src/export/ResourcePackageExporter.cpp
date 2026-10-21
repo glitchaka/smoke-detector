@@ -151,12 +151,17 @@ void buildSelfExtractor(const std::filesystem::path& stub, const std::filesystem
 std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
     const promptemon::rom::RomResourceArchive& archive,
     const std::filesystem::path& exportRoot,
-    const std::filesystem::path& selfExtractorStub) {
+    const std::filesystem::path& selfExtractorStub,
+    ProgressCallback progress) {
 
     std::vector<ResourcePackageResult> results;
     const auto summaries = archive.sourceSummaries();
     const auto packageRoot = exportRoot / "resources";
     std::filesystem::create_directories(packageRoot);
+
+    std::size_t totalResources = 0;
+    for (const auto& summary : summaries) totalResources += archive.resourcesForSource(summary.label).size();
+    std::size_t currentResource = 0;
 
     for (const auto& summary : summaries) {
         ResourcePackageResult result;
@@ -180,6 +185,8 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
         const auto resources = archive.resourcesForSource(summary.label);
         for (std::size_t i = 0; i < resources.size(); ++i) {
             const auto& resource = resources[i];
+            if (progress) progress(currentResource, totalResources, summary.label, resource.id);
+
             const auto virtualPath = summary.label + " :: " + resource.id;
             const auto payload = archive.extract(virtualPath);
             const auto relative = std::filesystem::path("files") / safeRelative(resource.id);
@@ -198,6 +205,7 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
                      << "\", \"size\": " << size << "}";
             if (i + 1 != resources.size()) manifest << ',';
             manifest << '\n';
+            ++currentResource;
         }
         manifest << "  ]\n}\n";
 
@@ -223,6 +231,8 @@ std::vector<ResourcePackageResult> ResourcePackageExporter::exportAll(
         }
         results.push_back(std::move(result));
     }
+
+    if (progress) progress(totalResources, totalResources, std::string{}, std::string{});
     return results;
 }
 
