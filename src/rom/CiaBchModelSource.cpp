@@ -93,14 +93,10 @@ public:
             throw std::runtime_error("Could not open 3DS RomFS: " + info_.path.string());
         }
 
-        // Pokemon Rumble World stores Pokemon models under pii/.  Prefer that
-        // explicit model tree whenever it exists so unrelated BCH resources
-        // (UI effects, 3D helpers, texture containers, etc.) do not appear as
-        // Pokemon in the model picker.  Other 3DS titles keep the generic BCH
-        // scan as a fallback.
-        auto paths = archive_->pokemonModels();
-        if (paths.empty()) paths = archive_->modelResources();
-
+        // The model browser is game-agnostic. Expose every BCH candidate in the
+        // RomFS (including nested archives), not only Pokemon Rumble World's pii/
+        // tree. This lets scenes, props, NPCs and other 3D resources appear too.
+        const auto paths = archive_->modelResources();
         resources_.reserve(paths.size());
         for (const auto& path : paths) resources_.push_back({path, path});
         if (resources_.empty()) {
@@ -167,8 +163,6 @@ public:
             if (isSoundBank(path)) soundBanks.push_back(path);
         }
 
-        // Direct matches are preferred. Sound archives are included as a fallback
-        // because many 3DS titles keep Pokemon SFX/cries inside a global BCSAR.
         std::vector<std::string> audio = directAudio;
         if (audio.empty()) audio = soundBanks;
 
